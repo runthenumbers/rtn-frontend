@@ -11,9 +11,10 @@ import {
   type FormEvent,
 } from "react";
 
+import { useCatalogues } from "@/components/catalogues/catalogues-provider";
 import { FormError } from "@/components/auth/form-error";
 import { batchHref } from "@/components/batches/batches-catalogue";
-import { EmptyState, LoadingState } from "@/components/ui/feedback";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/feedback";
 import {
   FormActions,
   SelectField,
@@ -37,9 +38,7 @@ import {
 } from "@/lib/domain/currencies";
 import {
   formatMaterialQuantity,
-  getCompatibleMaterialUnits,
   isMaterialUnit,
-  materialUnits,
   type MaterialUnit,
 } from "@/lib/domain/material-units";
 import {
@@ -81,6 +80,7 @@ const secondaryActionClassName =
 const emptyMaterials: readonly MaterialSummary[] = [];
 
 export function BatchForm() {
+  const { currencies } = useCatalogues();
   const session = useSyncExternalStore(
     subscribeToMockSession,
     getMockSessionSnapshot,
@@ -102,9 +102,26 @@ export function BatchForm() {
     return <LoadingState label="Loading batch builder" />;
   }
 
+  if (
+    !workspace ||
+    !currencies.some((option) => option.code === workspace.baseCurrency)
+  ) {
+    return (
+      <ErrorState
+        title="Choose a supported workspace currency"
+        description="Update your base currency in Settings before creating a batch."
+        action={
+          <Link className={secondaryActionClassName} href={routes.settings}>
+            Open settings
+          </Link>
+        }
+      />
+    );
+  }
+
   return (
     <BatchFormFields
-      currency={workspace?.baseCurrency ?? "GBP"}
+      currency={workspace.baseCurrency}
       journey={session.journey}
       materials={materials}
     />
@@ -120,6 +137,28 @@ function BatchFormFields({
   journey: "new" | "returning";
   materials: readonly MaterialSummary[];
 }) {
+  const { units } = useCatalogues();
+  const availableUnits = useMemo(
+    () =>
+      new Set(
+        units
+          .filter((unit) => isMaterialUnit(unit.code))
+          .map((unit) => unit.code),
+      ),
+    [units],
+  );
+
+  function getCompatibleUnits(code: MaterialUnit) {
+    const source = units.find((unit) => unit.code === code);
+    return source
+      ? units.filter(
+          (unit) =>
+            availableUnits.has(unit.code) &&
+            unit.dimension === source.dimension,
+        )
+      : [];
+  }
+
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -154,9 +193,13 @@ function BatchFormFields({
     if (
       !outputQuantity ||
       !isMaterialUnit(outputUnit) ||
+      !availableUnits.has(outputUnit) ||
       lines.some(
         (line) =>
-          !line.materialId || !line.quantity || !isMaterialUnit(line.unit),
+          !line.materialId ||
+          !line.quantity ||
+          !isMaterialUnit(line.unit) ||
+          !availableUnits.has(line.unit),
       )
     ) {
       return undefined;
@@ -183,7 +226,7 @@ function BatchFormFields({
     } catch {
       return undefined;
     }
-  }, [lines, materials, outputQuantity, outputUnit]);
+  }, [lines, materials, outputQuantity, outputUnit, availableUnits]);
 
   function markChanged() {
     setIsDirty(true);
@@ -234,7 +277,7 @@ function BatchFormFields({
       nextErrors.date = "Choose a planned production date.";
     if (!outputQuantity || Number(outputQuantity) <= 0)
       nextErrors.outputQuantity = "Enter a target output greater than zero.";
-    if (!isMaterialUnit(outputUnit))
+    if (!isMaterialUnit(outputUnit) || !availableUnits.has(outputUnit))
       nextErrors.outputUnit = "Choose a target output unit.";
     if (outputUnit === "item" && !Number.isInteger(Number(outputQuantity))) {
       nextErrors.outputQuantity = "Count-based output must be a whole number.";
@@ -252,8 +295,8 @@ function BatchFormFields({
         };
       else if (
         !isMaterialUnit(line.unit) ||
-        !getCompatibleMaterialUnits(material.unit).some(
-          (unit) => unit.value === line.unit,
+        !getCompatibleUnits(material.unit).some(
+          (unit) => unit.code === line.unit,
         )
       )
         nextLineErrors[line.id] = { unit: "Choose a compatible unit." };
@@ -274,7 +317,11 @@ function BatchFormFields({
     event.preventDefault();
     setFormError(undefined);
     const validCalculation = validate();
-    if (!validCalculation || !isMaterialUnit(outputUnit)) {
+    if (
+      !validCalculation ||
+      !isMaterialUnit(outputUnit) ||
+      !availableUnits.has(outputUnit)
+    ) {
       requestAnimationFrame(() =>
         formRef.current
           ?.querySelector<HTMLElement>("[aria-invalid='true']")
@@ -470,11 +517,13 @@ function BatchFormFields({
                     }}
                   >
                     <option value="">Select</option>
-                    {materialUnits.map((unit) => (
-                      <option key={unit.value} value={unit.value}>
-                        {unit.abbreviation}
-                      </option>
-                    ))}
+                    {units
+                      .filter((unit) => availableUnits.has(unit.code))
+                      .map((unit) => (
+                        <option key={unit.code} value={unit.code}>
+                          {unit.abbreviation}
+                        </option>
+                      ))}
                   </SelectField>
                 </div>
                 <div className="sm:col-span-2">
@@ -549,7 +598,10 @@ function BatchFormFields({
                             );
                             updateLine(line.id, {
                               materialId: event.target.value,
-                              unit: selected?.unit ?? "",
+                              unit:
+                                selected && availableUnits.has(selected.unit)
+                                  ? selected.unit
+                                  : "",
                             });
                           }}
                         >
@@ -596,10 +648,10 @@ function BatchFormFields({
                         >
                           <option value="">Select</option>
                           {(material
-                            ? getCompatibleMaterialUnits(material.unit)
+                            ? getCompatibleUnits(material.unit)
                             : []
                           ).map((unit) => (
-                            <option key={unit.value} value={unit.value}>
+                            <option key={unit.code} value={unit.code}>
                               {unit.abbreviation}
                             </option>
                           ))}

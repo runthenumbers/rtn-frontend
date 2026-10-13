@@ -37,10 +37,24 @@ Environment files live at the project root, not inside `src/`.
 - Variables prefixed with `NEXT_PUBLIC_` are included in the browser bundle at
   build time. They must never contain secrets.
 - Server-only variables must not use the `NEXT_PUBLIC_` prefix.
-- Netlify should provide production values through its environment settings.
+- Vercel must provide production values before building the frontend.
 
-No secrets are required by the current UI-only foundation. Runtime validation
-will be added when the first required integration variable is introduced.
+Set `NEXT_PUBLIC_API_URL=https://rtn-backend.vercel.app` for catalogue access.
+Missing configuration, invalid responses, timeouts and network errors display a
+retry screen. Authentication and workspace/material/batch persistence still use
+preview adapters.
+
+For Vercel, import this repository, use Node.js 24, and set `NEXT_PUBLIC_APP_URL`
+to the frontend production origin and `NEXT_PUBLIC_API_URL` to the backend origin.
+Add the exact frontend origin to the backend production `CORS_ORIGINS` allowlist
+and redeploy the backend. Public environment changes require a frontend rebuild.
+
+After deployment, verify currency options in onboarding and Settings, material
+unit groups, and compatible batch units. In browser developer tools, confirm both
+`/v1/catalogues/` requests return 200 from the production backend. Block those
+requests and reload to check the error screen, then unblock and select Try again.
+A throttled connection should show the loading state. This verifies catalogue
+reads through the frontend, backend and production Neon; preview saves remain local.
 
 ## Quality commands
 

@@ -27,7 +27,6 @@ import {
   getMockSessionSnapshot,
   subscribeToMockSession,
 } from "@/lib/auth/mock-session";
-import { currencies } from "@/lib/domain/currencies";
 import { isMaterialUnit, type MaterialUnit } from "@/lib/domain/material-units";
 import {
   deriveStockStatus,
@@ -112,7 +111,7 @@ function MaterialFormFields({
   journey,
   materialId,
 }: MaterialFormFieldsProps) {
-  const { units } = useCatalogues();
+  const { units, currencies } = useCatalogues();
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -121,9 +120,9 @@ function MaterialFormFields({
     getMockWorkspaceSnapshot,
     getMockWorkspaceServerSnapshot,
   );
-  const currency =
-    currencies.find((option) => option.code === workspace?.baseCurrency) ??
-    currencies.find((option) => option.code === "GBP")!;
+  const currency = currencies.find(
+    (option) => option.code === workspace?.baseCurrency,
+  );
 
   const [savedMaterialId, setSavedMaterialId] = useState<string>();
   const [name, setName] = useState(initialMaterial?.name ?? "");
@@ -205,6 +204,12 @@ function MaterialFormFields({
     event.preventDefault();
     setFormError(undefined);
     setIsSaved(false);
+    if (!currency) {
+      setFormError(
+        "Choose a supported base currency in Settings before saving a material.",
+      );
+      return;
+    }
 
     const nextErrors: MaterialFormErrors = {};
     const parsedPrice = Number(purchasePrice);
@@ -294,6 +299,20 @@ function MaterialFormFields({
     parsedPackQuantity > 0
       ? deriveStockStatus(parsedStockQuantity, parsedPackQuantity)
       : undefined;
+
+  if (!currency) {
+    return (
+      <ErrorState
+        title="Choose a supported workspace currency"
+        description="Update your base currency in Settings before creating or editing materials."
+        action={
+          <Link className={secondaryActionClassName} href={routes.settings}>
+            Open settings
+          </Link>
+        }
+      />
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-4xl">

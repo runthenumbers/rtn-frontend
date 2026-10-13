@@ -24,11 +24,10 @@ export function CurrencySelect({
   optional = false,
   value,
 }: CurrencySelectProps) {
-
-  const {currencies} = useCatalogues()
+  const { currencies } = useCatalogues();
   const unsupported = Boolean(
-    value && !currencies.some((currency) => currency.code === value)
-  )
+    value && !currencies.some((currency) => currency.code === value),
+  );
 
   return (
     <SelectField
