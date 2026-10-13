@@ -10,6 +10,7 @@ import {
   type FormEvent,
 } from "react";
 
+import { useCatalogues } from "@/components/catalogues/catalogues-provider";
 import { FormError } from "@/components/auth/form-error";
 import {
   ErrorState,
@@ -27,10 +28,7 @@ import {
   subscribeToMockSession,
 } from "@/lib/auth/mock-session";
 import { currencies } from "@/lib/domain/currencies";
-import {
-  isMaterialUnit,
-  materialUnitGroups,
-} from "@/lib/domain/material-units";
+import { isMaterialUnit, type MaterialUnit } from "@/lib/domain/material-units";
 import {
   deriveStockStatus,
   getMockMaterial,
@@ -114,6 +112,7 @@ function MaterialFormFields({
   journey,
   materialId,
 }: MaterialFormFieldsProps) {
+  const { units } = useCatalogues();
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -145,6 +144,14 @@ function MaterialFormFields({
   const [isDirty, setIsDirty] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+
+  function isAvailableUnit(value: string): value is MaterialUnit {
+    return (
+      isMaterialUnit(value) && units.some((option) => option.code === value)
+    );
+  }
+
+  const unsupportedUnit = Boolean(unit && !isAvailableUnit(unit));
 
   useEffect(() => {
     nameRef.current?.focus();
@@ -224,7 +231,7 @@ function MaterialFormFields({
       nextErrors.packQuantity =
         "Enter the quantity supplied for this purchase price.";
     }
-    if (!isMaterialUnit(unit)) {
+    if (!isAvailableUnit(unit)) {
       nextErrors.unit = "Choose a supported unit.";
     }
     if (
@@ -243,7 +250,7 @@ function MaterialFormFields({
 
     if (
       !materialCategories.includes(category as MaterialCategory) ||
-      !isMaterialUnit(unit)
+      !isAvailableUnit(unit)
     ) {
       return;
     }
@@ -474,7 +481,11 @@ function MaterialFormFields({
             />
             <SelectField
               description="Used for both purchased and available quantities."
-              error={errors.unit}
+              error={
+                unsupportedUnit
+                  ? "This unit is no longer supported. Choose another unit."
+                  : errors.unit
+              }
               label="Unit"
               name="unit"
               required
@@ -486,13 +497,26 @@ function MaterialFormFields({
               }}
             >
               <option value="">Select a unit</option>
-              {materialUnitGroups.map((group) => (
-                <optgroup key={group.dimension} label={group.dimension}>
-                  {group.units.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label} ({option.abbreviation})
-                    </option>
-                  ))}
+              {unsupportedUnit ? (
+                <option value={unit} disabled>
+                  {unit} — no longer supported
+                </option>
+              ) : null}
+              {(
+                [
+                  { dimension: "MASS", label: "Mass" },
+                  { dimension: "VOLUME", label: "Volume" },
+                  { dimension: "COUNT", label: "Count" },
+                ] as const
+              ).map((group) => (
+                <optgroup key={group.dimension} label={group.label}>
+                  {units
+                    .filter((option) => option.dimension === group.dimension)
+                    .map((option) => (
+                      <option key={option.code} value={option.code}>
+                        {option.label} ({option.abbreviation})
+                      </option>
+                    ))}
                 </optgroup>
               ))}
             </SelectField>

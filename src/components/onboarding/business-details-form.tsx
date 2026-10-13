@@ -16,9 +16,10 @@ import {
   isBusinessType,
   isCountryCode,
 } from "@/lib/domain/business-options";
-import { isCurrencyCode } from "@/lib/domain/currencies";
+import { isCurrencyCode, type CurrencyCode } from "@/lib/domain/currencies";
 import { saveBusinessDetails } from "@/lib/onboarding/mock-onboarding";
 import { routes } from "@/lib/routes";
+import { useCatalogues } from "@/components/catalogues/catalogues-provider";
 
 interface BusinessDetailsErrors {
   baseCurrency?: string;
@@ -40,6 +41,15 @@ export function BusinessDetailsForm() {
   const [formError, setFormError] = useState<string>();
   const [isDirty, setIsDirty] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const { currencies } = useCatalogues();
+
+  function isAvailableCurrency(value: string): value is CurrencyCode {
+    return (
+      isCurrencyCode(value) &&
+      currencies.some((currency) => currency.code === value)
+    );
+  }
 
   useEffect(() => {
     if (!isDirty) {
@@ -87,11 +97,11 @@ export function BusinessDetailsForm() {
       nextErrors.country = "Choose a supported country or region.";
     }
 
-    if (!isCurrencyCode(baseCurrency)) {
+    if (!isAvailableCurrency(baseCurrency)) {
       nextErrors.baseCurrency = "Choose your base currency.";
     }
 
-    if (secondaryCurrency && !isCurrencyCode(secondaryCurrency)) {
+    if (secondaryCurrency && !isAvailableCurrency(secondaryCurrency)) {
       nextErrors.secondaryCurrency = "Choose a supported secondary currency.";
     } else if (secondaryCurrency && secondaryCurrency === baseCurrency) {
       nextErrors.secondaryCurrency =
@@ -105,7 +115,7 @@ export function BusinessDetailsForm() {
       return;
     }
 
-    if (!isCurrencyCode(baseCurrency)) {
+    if (!isAvailableCurrency(baseCurrency)) {
       return;
     }
 
@@ -113,7 +123,7 @@ export function BusinessDetailsForm() {
       ? businessType
       : undefined;
     const validCountry = isCountryCode(country) ? country : undefined;
-    const validSecondaryCurrency = isCurrencyCode(secondaryCurrency)
+    const validSecondaryCurrency = isAvailableCurrency(secondaryCurrency)
       ? secondaryCurrency
       : undefined;
 

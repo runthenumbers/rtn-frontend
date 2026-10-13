@@ -26,7 +26,7 @@ import {
   isBusinessType,
   isCountryCode,
 } from "@/lib/domain/business-options";
-import { isCurrencyCode } from "@/lib/domain/currencies";
+import { isCurrencyCode, type CurrencyCode } from "@/lib/domain/currencies";
 import {
   getMockWorkspaceServerSnapshot,
   getMockWorkspaceSnapshot,
@@ -42,6 +42,8 @@ interface SettingsErrors {
   country?: string;
   secondaryCurrency?: string;
 }
+
+import { useCatalogues } from "@/components/catalogues/catalogues-provider";
 
 const secondaryActionClassName =
   "inline-flex min-h-12 w-full items-center justify-center rounded-lg border border-slate-300 bg-white px-6 font-semibold text-slate-800 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto";
@@ -99,6 +101,14 @@ function SettingsFields({
   const [isDirty, setIsDirty] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const { currencies } = useCatalogues();
+
+  function isAvailableCurrency(value: string): value is CurrencyCode {
+    return (
+      isCurrencyCode(value) &&
+      currencies.some((currency) => currency.code === value)
+    );
+  }
 
   useEffect(() => {
     if (!isDirty) return;
@@ -158,10 +168,10 @@ function SettingsFields({
     if (country && !isCountryCode(country)) {
       nextErrors.country = "Choose a supported country or region.";
     }
-    if (!isCurrencyCode(baseCurrency)) {
+    if (!isAvailableCurrency(baseCurrency)) {
       nextErrors.baseCurrency = "Choose a supported base currency.";
     }
-    if (secondaryCurrency && !isCurrencyCode(secondaryCurrency)) {
+    if (secondaryCurrency && !isAvailableCurrency(secondaryCurrency)) {
       nextErrors.secondaryCurrency = "Choose a supported secondary currency.";
     } else if (secondaryCurrency && secondaryCurrency === baseCurrency) {
       nextErrors.secondaryCurrency =
@@ -173,7 +183,7 @@ function SettingsFields({
       focusFirstInvalidField();
       return;
     }
-    if (!isCurrencyCode(baseCurrency)) return;
+    if (!isAvailableCurrency(baseCurrency)) return;
 
     setIsSubmitting(true);
     try {
@@ -182,7 +192,7 @@ function SettingsFields({
         businessName,
         businessType: isBusinessType(businessType) ? businessType : undefined,
         country: isCountryCode(country) ? country : undefined,
-        secondaryCurrency: isCurrencyCode(secondaryCurrency)
+        secondaryCurrency: isAvailableCurrency(secondaryCurrency)
           ? secondaryCurrency
           : undefined,
       });

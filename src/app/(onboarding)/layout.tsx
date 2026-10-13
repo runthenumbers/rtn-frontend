@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { OnboardingRouteGate } from "@/components/auth/mock-route-gates";
 import { OnboardingShell } from "@/components/onboarding/onboarding-shell";
+import { CataloguesProvider } from "@/components/catalogues/catalogues-provider";
 
 export default function OnboardingLayout({
   children,
@@ -10,7 +11,9 @@ export default function OnboardingLayout({
 }) {
   return (
     <OnboardingRouteGate>
-      <OnboardingShell>{children}</OnboardingShell>
+      <OnboardingShell>
+        <CataloguesProvider>{children}</CataloguesProvider>
+      </OnboardingShell>
     </OnboardingRouteGate>
   );
 }

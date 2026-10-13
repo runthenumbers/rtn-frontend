@@ -1,7 +1,7 @@
 "use client";
 
 import { SelectField } from "@/components/ui/form-controls";
-import { currencies } from "@/lib/domain/currencies";
+import { useCatalogues } from "@/components/catalogues/catalogues-provider";
 
 interface CurrencySelectProps {
   description: string;
@@ -24,10 +24,20 @@ export function CurrencySelect({
   optional = false,
   value,
 }: CurrencySelectProps) {
+
+  const {currencies} = useCatalogues()
+  const unsupported = Boolean(
+    value && !currencies.some((currency) => currency.code === value)
+  )
+
   return (
     <SelectField
       description={description}
-      error={error}
+      error={
+        unsupported
+          ? "This currency is no longer supported. Choose another currency."
+          : error
+      }
       label={label}
       name={name}
       required={!optional}
@@ -38,6 +48,11 @@ export function CurrencySelect({
       <option value="">
         {optional ? "No secondary currency" : "Select a currency"}
       </option>
+      {unsupported ? (
+        <option value={value} disabled>
+          {value} — no longer supported
+        </option>
+      ) : null}
       {currencies.map((currency) => (
         <option key={currency.code} value={currency.code}>
           {currency.name} ({currency.symbol} · {currency.code})
