@@ -39,19 +39,26 @@ Environment files live at the project root, not inside `src/`.
 - Server-only variables must not use the `NEXT_PUBLIC_` prefix.
 - Vercel must provide production values before building the frontend.
 
-Set `NEXT_PUBLIC_API_URL=https://rtn-backend.vercel.app` for catalogue access.
+Set `API_URL=https://rtn-backend.vercel.app` for the backend upstream.
+Browser API requests use `/api/v1/...`; Next.js rewrites them to the backend
+`/v1/...` endpoints. `NEXT_PUBLIC_API_URL` remains a fallback for existing
+deployments. Local development defaults to `http://localhost:3001`.
 Missing configuration, invalid responses, timeouts and network errors display a
 retry screen. Authentication and workspace/material/batch persistence still use
 preview adapters.
 
 For Vercel, import this repository, use Node.js 24, and set `NEXT_PUBLIC_APP_URL`
-to the frontend production origin and `NEXT_PUBLIC_API_URL` to the backend origin.
+to the frontend production origin and `API_URL` to the backend origin.
 Add the exact frontend origin to the backend production `CORS_ORIGINS` allowlist
-and redeploy the backend. Public environment changes require a frontend rebuild.
+and redeploy the backend. Proxy upstream changes require a frontend rebuild.
+Set backend `FRONTEND_URL` to the exact browser-facing frontend origin. Sign-in
+checks the Origin header and sets a host-only HttpOnly session cookie. Production
+uses Secure `__Host-rtn-session`; development uses `rtn-session`. Verify cookie
+and Origin forwarding on the hosting platform before deployment.
 
 After deployment, verify currency options in onboarding and Settings, material
 unit groups, and compatible batch units. In browser developer tools, confirm both
-`/v1/catalogues/` requests return 200 from the production backend. Block those
+`/api/v1/catalogues/` requests return 200 from the production backend. Block those
 requests and reload to check the error screen, then unblock and select Try again.
 A throttled connection should show the loading state. This verifies catalogue
 reads through the frontend, backend and production Neon; preview saves remain local.
