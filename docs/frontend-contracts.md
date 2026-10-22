@@ -42,8 +42,15 @@ unverified-email response. Validation errors are mapped to account form fields.
 A registration delivery failure offers verification resend because the account may
 already exist. Resend uses the backend's generic acknowledgement.
 
-Password recovery has no backend endpoint yet, so the UI explicitly shows it as
-unavailable and does not simulate sending an email.
+Password recovery uses `POST /v1/auth/forgot-password` with an email and always
+shows the same acknowledgement on success. `POST /v1/auth/reset-password` accepts
+the token and an unchanged password; confirmation is validated locally and is not
+persisted. The email link targets `/reset-password#token=...`; the page removes
+the fragment, keeps the token in memory, validates matching 6–128-character
+passwords and submits only on confirmation. Invalid/expired/used links offer a new
+request, while transient failures preserve the form for retry. Success reloads
+`/sign-in?reset=success`, discarding previous account context. Recovery pages are
+accessible even while signed in and do not depend on workspace onboarding.
 
 ## Business onboarding
 

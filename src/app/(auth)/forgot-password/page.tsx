@@ -19,7 +19,7 @@ export default function ForgotPasswordPage() {
         Reset your password
       </h1>
       <p className="mt-4 leading-7 text-slate-600">
-        Get help accessing your RTN account.
+        Enter your account email to request a password reset link.
       </p>
 
       <div className="mt-8">

@@ -1,3 +1,4 @@
+import { requestPasswordReset, resetPassword } from "./api.ts";
 import assert from "node:assert/strict";
 import { afterEach, mock, test } from "node:test";
 import {
@@ -118,4 +119,35 @@ test("password validation matches the six-to-128-character backend policy", () =
   assert.equal(passwordMeetsRequirements("abcdef"), true);
   assert.equal(passwordMeetsRequirements("a".repeat(128)), true);
   assert.equal(passwordMeetsRequirements("a".repeat(129)), false);
+});
+
+test("recovery requests normalize email and use the recovery endpoint", async () => {
+  const fetch = respond({ message: "Requested" }, 202);
+  await requestPasswordReset("  USER@EXAMPLE.COM  ");
+  const [url, options] = fetch.mock.calls[0].arguments as [string, RequestInit];
+  assert.equal(url, "/api/v1/auth/forgot-password");
+  assert.deepEqual(JSON.parse(options.body as string), {
+    email: "user@example.com",
+  });
+});
+
+test("password reset sends the token and new password unchanged", async () => {
+  const fetch = respond({ message: "Reset" });
+  const token = "A".repeat(43);
+  await resetPassword(token, "  new password  ");
+  const [url, options] = fetch.mock.calls[0].arguments as [string, RequestInit];
+  assert.equal(url, "/api/v1/auth/reset-password");
+  assert.deepEqual(JSON.parse(options.body as string), {
+    token,
+    password: "  new password  ",
+  });
+});
+
+test("expired reset links surface as validation failures", async () => {
+  respond({ error: { message: "Invalid or expired", fieldErrors: {} } }, 400);
+  await assert.rejects(
+    resetPassword("A".repeat(43), "new password"),
+    (error: unknown) =>
+      error instanceof AuthError && error.code === "VALIDATION",
+  );
 });

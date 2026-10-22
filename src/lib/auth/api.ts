@@ -124,3 +124,13 @@ export async function verifyEmail(token: string): Promise<void> {
 export async function resendVerification(email: string): Promise<void> {
   await submit("resend-verification", { email: email.trim().toLowerCase() });
 }
+
+export async function requestPasswordReset(email: string): Promise<void> {
+  await submit("forgot-password", { email: email.trim().toLowerCase() });
+}
+export async function resetPassword(
+  token: string,
+  password: string,
+): Promise<void> {
+  await submit("reset-password", { token, password });
+}

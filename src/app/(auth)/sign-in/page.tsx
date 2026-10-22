@@ -9,7 +9,12 @@ export const metadata: Metadata = {
   description: "Sign in to your RTN production-costing workspace.",
 };
 
-export default function SignInPage() {
+export default async function SignInPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ reset?: string }>;
+}) {
+  const resetSuccess = (await searchParams).reset === "success";
   return (
     <div>
       <p className="text-sm font-bold tracking-[0.14em] text-emerald-800 uppercase">
@@ -22,6 +27,14 @@ export default function SignInPage() {
         Continue to your materials, batches, and production costs.
       </p>
 
+      {resetSuccess ? (
+        <p
+          role="status"
+          className="mt-6 rounded-lg bg-emerald-50 p-4 text-emerald-900"
+        >
+          Your password has been reset. Sign in with your new password.
+        </p>
+      ) : null}
       <div className="mt-8">
         <SignInForm />
       </div>

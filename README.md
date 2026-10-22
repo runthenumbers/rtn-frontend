@@ -93,7 +93,8 @@ src/app/
 │   ├── sign-in/
 │   ├── sign-up/
 │   ├── verify-email/
-│   └── forgot-password/
+│   ├── forgot-password/
+│   └── reset-password/
 ├── (onboarding)/
 │   └── onboarding/
 ├── (app)/
@@ -119,8 +120,11 @@ sessions server-side, and client route gates resolve session state through the A
 Registration shows verification instructions instead of signing the user in.
 The `/verify-email` page reads the emailed token from the URL fragment, removes
 it from the address bar, and submits it only after confirmation. Password recovery
-is unavailable until the backend implements that endpoint; it no longer simulates
-sending a reset email. Registration accepts passwords of 6–128 characters.
+uses `/api/v1/auth/forgot-password` and `/api/v1/auth/reset-password`. The reset
+page also reads the token from the fragment and removes it from history before
+submission. Success clears the cookie and reloads sign-in with a confirmation.
+Recovery pages remain accessible while signed in and do not require workspace
+onboarding. Registration and reset accept passwords of 6–128 characters.
 
 Workspace onboarding, settings, materials and batches remain browser previews.
 Their sessionStorage keys are scoped to the authenticated user, and they do not
