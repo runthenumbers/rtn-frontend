@@ -5,7 +5,6 @@ import {
   type CountryCode,
 } from "@/lib/domain/business-options";
 import { isCurrencyCode, type CurrencyCode } from "@/lib/domain/currencies";
-import { completeMockOnboarding } from "@/lib/auth/mock-session";
 import { saveMockWorkspace } from "@/lib/onboarding/mock-workspace";
 
 export interface BusinessDetailsInput {
@@ -41,5 +40,4 @@ export async function saveBusinessDetails(input: BusinessDetailsInput) {
     ...input,
     businessName: input.businessName.trim(),
   });
-  completeMockOnboarding();
 }

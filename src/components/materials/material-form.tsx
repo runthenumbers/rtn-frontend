@@ -22,11 +22,7 @@ import {
   SelectField,
   TextField,
 } from "@/components/ui/form-controls";
-import {
-  getMockSessionServerSnapshot,
-  getMockSessionSnapshot,
-  subscribeToMockSession,
-} from "@/lib/auth/mock-session";
+import { useAuth } from "@/components/auth/auth-provider";
 import { isMaterialUnit, type MaterialUnit } from "@/lib/domain/material-units";
 import {
   deriveStockStatus,
@@ -62,12 +58,8 @@ const secondaryActionClassName =
   "inline-flex min-h-12 w-full items-center justify-center rounded-lg border border-slate-300 bg-white px-6 font-semibold text-slate-800 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 sm:w-auto";
 
 export function MaterialForm({ materialId }: MaterialFormProps) {
-  const session = useSyncExternalStore(
-    subscribeToMockSession,
-    getMockSessionSnapshot,
-    getMockSessionServerSnapshot,
-  );
-  const journey = session?.journey ?? "new";
+  const { user: session } = useAuth();
+  const journey = "new" as const;
   const material = materialId
     ? getMockMaterial(materialId, journey)
     : undefined;
@@ -95,7 +87,7 @@ export function MaterialForm({ materialId }: MaterialFormProps) {
   return (
     <MaterialFormFields
       initialMaterial={material}
-      journey={session.journey}
+      journey={"new"}
       materialId={materialId}
     />
   );

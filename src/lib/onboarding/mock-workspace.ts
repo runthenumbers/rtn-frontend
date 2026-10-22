@@ -1,3 +1,4 @@
+import { previewStorageKey } from "@/lib/onboarding/preview-scope";
 import {
   isBusinessType,
   isCountryCode,
@@ -22,7 +23,9 @@ export const returningUserWorkspace: MockWorkspace = {
   secondaryCurrency: "EUR",
 };
 
-const storageKey = "rtn:preview-workspace";
+function storageKey() {
+  return previewStorageKey("rtn:preview-workspace");
+}
 const listeners = new Set<() => void>();
 let cachedRawValue: string | null | undefined;
 let cachedWorkspace: MockWorkspace | null = null;
@@ -57,7 +60,7 @@ export function getMockWorkspaceSnapshot(): MockWorkspace | null {
     return null;
   }
 
-  const rawValue = window.sessionStorage.getItem(storageKey);
+  const rawValue = window.sessionStorage.getItem(storageKey());
 
   if (rawValue === cachedRawValue) {
     return cachedWorkspace;
@@ -88,7 +91,7 @@ export function subscribeToMockWorkspace(listener: () => void) {
   listeners.add(listener);
 
   function handleStorage(event: StorageEvent) {
-    if (event.key === storageKey) {
+    if (event.key === storageKey()) {
       cachedRawValue = undefined;
       listener();
     }
@@ -104,14 +107,14 @@ export function subscribeToMockWorkspace(listener: () => void) {
 
 export function saveMockWorkspace(workspace: MockWorkspace) {
   const rawValue = JSON.stringify(workspace);
-  window.sessionStorage.setItem(storageKey, rawValue);
+  window.sessionStorage.setItem(storageKey(), rawValue);
   cachedRawValue = rawValue;
   cachedWorkspace = workspace;
   listeners.forEach((listener) => listener());
 }
 
 export function clearMockWorkspace() {
-  window.sessionStorage.removeItem(storageKey);
+  window.sessionStorage.removeItem(storageKey());
   cachedRawValue = null;
   cachedWorkspace = null;
   listeners.forEach((listener) => listener());

@@ -6,46 +6,44 @@ authorization, persistence, or financial data.
 
 ## Authentication session
 
-The frontend needs an authenticated-session resolver that can distinguish:
+Authentication now uses the NestJS cookie-session endpoints. `/v1/auth/me`
+returns:
 
 ```ts
 interface SessionUser {
   id: string;
   email: string;
-  displayName: string;
-  onboardingComplete: boolean;
-  activeBusinessId?: string;
+  name: string;
 }
 ```
 
-The current mock session intentionally owns only `journey` and
-`onboardingComplete`. It does not model a user identity, email address, roles,
-tokens, password state, or account security controls. The account forms call a
-separate mock adapter and the client-side route gates read the session adapter.
+The client distinguishes loading, authenticated, unauthenticated and unavailable
+states. Only a `401` session response means signed out; backend/network failures
+produce retry UI. App/onboarding layouts also check the cookie against the API
+on the server. Session tokens are never stored in localStorage or sessionStorage.
 
-Expected navigation behavior:
+- registration success → verification instructions; no session is created
+- verification link → explicit confirmation → sign in
+- authenticated account without a local preview workspace → onboarding
+- authenticated account with a local preview workspace → dashboard
+- successful sign-out → server revocation, cookie deletion, sign-in screen
+- failed sign-out → error and retry, without claiming the session ended
 
-- unauthenticated application request → `/sign-in`
-- authenticated user without a completed business profile → `/onboarding`
-- authenticated user with a completed profile visiting an account screen →
-  `/dashboard`
-- sign-up success → `/onboarding`
-- sign-in success → `/dashboard`
-- sign-out success → `/sign-in`
-
-These redirects require server-side enforcement when the authentication
-provider is integrated. The current session-storage gates only model the UI
-journey and provide no security boundary.
+The backend does not yet return memberships or onboarding state. Workspace gates
+currently use user-scoped preview workspace data independently of authentication.
+All authenticated users start with empty preview collections; sign-in never seeds
+another user's demo business. Business data still needs backend integration.
 
 ### Authentication errors
 
-Sign-in failures must not reveal whether an email address is registered. The UI
-expects a generic invalid-credentials error and a separate safe unexpected
-error. Sign-up may report that an email is already in use because the user can
-then sign in or request recovery.
+Sign-in uses the generic invalid-credentials response for incorrect passwords or
+unknown emails. The verification reminder is shown only for the backend's specific
+unverified-email response. Validation errors are mapped to account form fields.
+A registration delivery failure offers verification resend because the account may
+already exist. Resend uses the backend's generic acknowledgement.
 
-Password recovery must return the same successful response whether or not an
-account exists.
+Password recovery has no backend endpoint yet, so the UI explicitly shows it as
+unavailable and does not simulate sending an email.
 
 ## Business onboarding
 

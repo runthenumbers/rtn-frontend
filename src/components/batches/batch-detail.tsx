@@ -8,11 +8,7 @@ import {
   formatDate,
 } from "@/components/batches/batches-catalogue";
 import { ErrorState, LoadingState } from "@/components/ui/feedback";
-import {
-  getMockSessionServerSnapshot,
-  getMockSessionSnapshot,
-  subscribeToMockSession,
-} from "@/lib/auth/mock-session";
+import { useAuth } from "@/components/auth/auth-provider";
 import {
   getMockBatch,
   type BatchLineViewModel,
@@ -33,11 +29,7 @@ const secondaryActionClassName =
   "inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700";
 
 export function BatchDetail({ batchId }: { batchId: string }) {
-  const session = useSyncExternalStore(
-    subscribeToMockSession,
-    getMockSessionSnapshot,
-    getMockSessionServerSnapshot,
-  );
+  const { user: session } = useAuth();
   const workspace = useSyncExternalStore(
     subscribeToMockWorkspace,
     getMockWorkspaceSnapshot,
@@ -48,7 +40,7 @@ export function BatchDetail({ batchId }: { batchId: string }) {
     return <LoadingState label="Loading batch details" />;
   }
 
-  const batch = getMockBatch(batchId, session.journey);
+  const batch = getMockBatch(batchId, "new");
 
   if (!batch) {
     return (

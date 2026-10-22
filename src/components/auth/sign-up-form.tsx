@@ -1,14 +1,13 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 
 import { FormError } from "@/components/auth/form-error";
 import { PasswordField } from "@/components/auth/password-field";
 import { TextField } from "@/components/ui/form-controls";
-import { AuthError, signUp } from "@/lib/auth/mock-auth";
+import { AuthError, signUp } from "@/lib/auth/api";
 import { isValidEmail, passwordMeetsRequirements } from "@/lib/auth/validation";
-import { routes } from "@/lib/routes";
+import { VerificationNotice } from "./verification-notice";
 
 interface SignUpErrors {
   confirmPassword?: string;
@@ -18,7 +17,8 @@ interface SignUpErrors {
 }
 
 export function SignUpForm() {
-  const router = useRouter();
+  const [registered, setRegistered] = useState(false);
+  const [deliveryFailed, setDeliveryFailed] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -42,7 +42,7 @@ export function SignUpForm() {
 
     const nextErrors: SignUpErrors = {};
 
-    if (name.trim().length < 2) {
+    if (name.trim().length < 1 || name.trim().length > 120) {
       nextErrors.name = "Enter your full name.";
     }
 
@@ -53,8 +53,7 @@ export function SignUpForm() {
     }
 
     if (!passwordMeetsRequirements(password)) {
-      nextErrors.password =
-        "Use at least 10 characters with uppercase, lowercase, and a number.";
+      nextErrors.password = "Use between 6 and 128 characters.";
     }
 
     if (!confirmPassword) {
@@ -74,11 +73,21 @@ export function SignUpForm() {
 
     try {
       await signUp({ name: name.trim(), email, password });
-      router.push(routes.onboarding);
+      setRegistered(true);
     } catch (error) {
-      if (error instanceof AuthError && error.code === "EMAIL_IN_USE") {
+      if (error instanceof AuthError && error.code === "DELIVERY_FAILED") {
+        setDeliveryFailed(true);
+        setRegistered(true);
+      } else if (error instanceof AuthError && error.code === "VALIDATION") {
+        setErrors({
+          name: error.fieldErrors.name?.[0],
+          email: error.fieldErrors.email?.[0],
+          password: error.fieldErrors.password?.[0],
+        });
+        setFormError("Check the highlighted fields and try again.");
+      } else if (error instanceof AuthError && error.code === "EMAIL_IN_USE") {
         setFormError(
-          "An account already uses this email. Sign in or reset your password.",
+          "An account already uses this email. Sign in or request another verification email.",
         );
       } else {
         setFormError("We couldn't create your account. Please try again.");
@@ -87,6 +96,14 @@ export function SignUpForm() {
       setIsSubmitting(false);
     }
   }
+
+  if (registered)
+    return (
+      <VerificationNotice
+        initialEmail={email}
+        deliveryFailed={deliveryFailed}
+      />
+    );
 
   return (
     <form
@@ -106,7 +123,7 @@ export function SignUpForm() {
         required
         value={name}
         onBlur={() => {
-          if (name && name.trim().length < 2) {
+          if ((name && name.trim().length < 1) || name.trim().length > 120) {
             setErrors((current) => ({
               ...current,
               name: "Enter your full name.",
@@ -149,7 +166,7 @@ export function SignUpForm() {
 
       <PasswordField
         autoComplete="new-password"
-        description="At least 10 characters with uppercase, lowercase, and a number."
+        description="Between 6 and 128 characters."
         error={errors.password}
         label="Password"
         name="password"
@@ -159,8 +176,7 @@ export function SignUpForm() {
           if (password && !passwordMeetsRequirements(password)) {
             setErrors((current) => ({
               ...current,
-              password:
-                "Use at least 10 characters with uppercase, lowercase, and a number.",
+              password: "Use between 6 and 128 characters.",
             }));
           }
         }}

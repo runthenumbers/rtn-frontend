@@ -14,7 +14,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:calculations": "node --experimental-strip-types src/lib/batches/batch-calculations.test.ts",
-    "check": "npm run lint && npm run typecheck && npm run format:check"
+    "check": "npm run lint && npm run typecheck && npm run format:check",
+    "test:auth": "node --experimental-strip-types --test src/lib/auth/api.test.ts"
   },
   "dependencies": {
     "axios": "^1.20.0",

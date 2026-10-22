@@ -1,3 +1,4 @@
+import { previewStorageKey } from "@/lib/onboarding/preview-scope";
 export const batchStatuses = ["Planned", "In production", "Completed"] as const;
 
 export type BatchStatus = (typeof batchStatuses)[number];
@@ -319,7 +320,7 @@ const batchCaches: Record<
 };
 
 function storageKey(journey: "new" | "returning") {
-  return `rtn:preview-batches:${journey}`;
+  return previewStorageKey(`rtn:preview-batches:${journey}`);
 }
 
 function isBatchCollection(value: unknown): value is BatchViewModel[] {

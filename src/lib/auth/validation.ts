@@ -3,10 +3,6 @@ export function isValidEmail(value: string) {
 }
 
 export function passwordMeetsRequirements(value: string) {
-  return (
-    value.length >= 10 &&
-    /[a-z]/.test(value) &&
-    /[A-Z]/.test(value) &&
-    /\d/.test(value)
-  );
+  const length = Array.from(value).length;
+  return length >= 6 && length <= 128;
 }

@@ -21,11 +21,7 @@ import {
   TextareaField,
   TextField,
 } from "@/components/ui/form-controls";
-import {
-  getMockSessionServerSnapshot,
-  getMockSessionSnapshot,
-  subscribeToMockSession,
-} from "@/lib/auth/mock-session";
+import { useAuth } from "@/components/auth/auth-provider";
 import { calculateBatchCost } from "@/lib/batches/batch-calculations";
 import {
   saveMockBatch,
@@ -81,17 +77,13 @@ const emptyMaterials: readonly MaterialSummary[] = [];
 
 export function BatchForm() {
   const { currencies } = useCatalogues();
-  const session = useSyncExternalStore(
-    subscribeToMockSession,
-    getMockSessionSnapshot,
-    getMockSessionServerSnapshot,
-  );
+  const { user: session } = useAuth();
   const workspace = useSyncExternalStore(
     subscribeToMockWorkspace,
     getMockWorkspaceSnapshot,
     getMockWorkspaceServerSnapshot,
   );
-  const journey = session?.journey ?? "new";
+  const journey = "new" as const;
   const materials = useSyncExternalStore(
     subscribeToMockMaterials,
     () => getMockMaterials(journey),
@@ -122,7 +114,7 @@ export function BatchForm() {
   return (
     <BatchFormFields
       currency={workspace.baseCurrency}
-      journey={session.journey}
+      journey={"new"}
       materials={materials}
     />
   );

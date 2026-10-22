@@ -4,6 +4,7 @@ export const routes = {
   home: "/",
   signIn: "/sign-in",
   signUp: "/sign-up",
+  verifyEmail: "/verify-email",
   forgotPassword: "/forgot-password",
   onboarding: "/onboarding",
   dashboard: "/dashboard",

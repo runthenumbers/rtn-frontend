@@ -9,11 +9,6 @@ import {
   BatchStatusBadge,
 } from "@/components/batches/batches-catalogue";
 import {
-  getMockSessionServerSnapshot,
-  getMockSessionSnapshot,
-  subscribeToMockSession,
-} from "@/lib/auth/mock-session";
-import {
   formatCurrency,
   getMockDashboard,
 } from "@/lib/dashboard/mock-dashboard";
@@ -40,18 +35,13 @@ const secondaryActionClassName =
   "inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700";
 
 export function DashboardOverview() {
-  const session = useSyncExternalStore(
-    subscribeToMockSession,
-    getMockSessionSnapshot,
-    getMockSessionServerSnapshot,
-  );
   const workspace = useSyncExternalStore(
     subscribeToMockWorkspace,
     getMockWorkspaceSnapshot,
     getMockWorkspaceServerSnapshot,
   );
   const currency: CurrencyCode = workspace?.baseCurrency ?? "GBP";
-  const journey = session?.journey ?? "new";
+  const journey = "new" as const;
   const materials = useSyncExternalStore(
     subscribeToMockMaterials,
     () => getMockMaterials(journey),

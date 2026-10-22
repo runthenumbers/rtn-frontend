@@ -11,9 +11,8 @@ import {
 } from "react";
 
 import { routes } from "@/lib/routes";
-import { clearMockSession } from "@/lib/auth/mock-session";
+import { useAuth } from "@/components/auth/auth-provider";
 import {
-  clearMockWorkspace,
   getMockWorkspaceServerSnapshot,
   getMockWorkspaceSnapshot,
   subscribeToMockWorkspace,
@@ -71,6 +70,9 @@ function WorkspaceNavigation({ onNavigate }: NavigationProps) {
 
 export function AppShell({ children }: AppShellProps) {
   const router = useRouter();
+  const { signOut: endSession } = useAuth();
+  const [signOutError, setSignOutError] = useState<string>();
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -115,15 +117,29 @@ export function AppShell({ children }: AppShellProps) {
     setIsMenuOpen(false);
   }
 
-  function signOut() {
-    clearMockSession();
-    clearMockWorkspace();
-    closeMenu();
-    router.replace(routes.signIn);
+  async function signOut() {
+    if (isSigningOut) return;
+    setIsSigningOut(true);
+    setSignOutError(undefined);
+    try {
+      await endSession();
+      closeMenu();
+      router.replace(routes.signIn);
+      router.refresh();
+    } catch {
+      setSignOutError("We couldn’t sign you out. Please try again.");
+    } finally {
+      setIsSigningOut(false);
+    }
   }
 
   return (
     <div className="min-h-screen bg-slate-50">
+      {signOutError ? (
+        <p role="alert" className="bg-red-50 p-4 text-red-800">
+          {signOutError}
+        </p>
+      ) : null}
       <a
         className="fixed top-3 left-3 z-50 -translate-y-20 rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white transition focus:translate-y-0 focus:outline-none"
         href="#main-content"
@@ -150,6 +166,7 @@ export function AppShell({ children }: AppShellProps) {
               className="hidden min-h-11 items-center rounded-lg px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 md:inline-flex"
               type="button"
               onClick={signOut}
+              disabled={isSigningOut}
             >
               Sign out
             </button>
@@ -232,6 +249,7 @@ export function AppShell({ children }: AppShellProps) {
               className="inline-flex min-h-11 w-full items-center rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
               type="button"
               onClick={signOut}
+              disabled={isSigningOut}
             >
               Sign out
             </button>

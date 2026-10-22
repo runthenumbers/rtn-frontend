@@ -44,8 +44,8 @@ Browser API requests use `/api/v1/...`; Next.js rewrites them to the backend
 `/v1/...` endpoints. `NEXT_PUBLIC_API_URL` remains a fallback for existing
 deployments. Local development defaults to `http://localhost:3001`.
 Missing configuration, invalid responses, timeouts and network errors display a
-retry screen. Authentication and workspace/material/batch persistence still use
-preview adapters.
+retry screen. Authentication uses the NestJS API. Workspace/material/batch persistence still
+uses user-scoped preview adapters.
 
 For Vercel, import this repository, use Node.js 24, and set `NEXT_PUBLIC_APP_URL`
 to the frontend production origin and `API_URL` to the backend origin.
@@ -92,6 +92,7 @@ src/app/
 ├── (auth)/
 │   ├── sign-in/
 │   ├── sign-up/
+│   ├── verify-email/
 │   └── forgot-password/
 ├── (onboarding)/
 │   └── onboarding/
@@ -109,12 +110,31 @@ src/app/
 └── page.tsx
 ```
 
-The typed route catalogue is defined in `src/lib/routes.ts`. Account actions,
-route gates, onboarding completion, workspace settings, materials, and batches
-currently use isolated browser adapters backed by `sessionStorage`. They model
-the complete preview journey and persist through reloads in the same tab, but
-they are not authentication, authorization, durable storage, or a security
-boundary.
+The typed route catalogue is defined in `src/lib/routes.ts`. Authentication uses
+`/api/v1/auth/register`, `sign-in`, `me`, `verify-email`, `resend-verification`
+and `sign-out`. Session cookies are HttpOnly; no authentication token or mock
+session is stored in browser storage. Protected app/onboarding layouts validate
+sessions server-side, and client route gates resolve session state through the API.
+
+Registration shows verification instructions instead of signing the user in.
+The `/verify-email` page reads the emailed token from the URL fragment, removes
+it from the address bar, and submits it only after confirmation. Password recovery
+is unavailable until the backend implements that endpoint; it no longer simulates
+sending a reset email. Registration accepts passwords of 6–128 characters.
+
+Workspace onboarding, settings, materials and batches remain browser previews.
+Their sessionStorage keys are scoped to the authenticated user, and they do not
+establish authentication or tenant authorization. A user without a local preview
+workspace enters onboarding. Backend workspace/membership integration remains
+separate work; preview workspace completion is not durable across browsers/tabs.
+
+Set backend `FRONTEND_URL` to the exact frontend origin (`http://localhost:3000`
+for local development). Use `npm run dev` against a development backend; production
+frontend/backend deployments must both use production cookie settings.
+
+Run `npm run test:auth` for authentication request/error-mapping and password-policy
+tests. Browser checks should cover signup, explicit email verification, sign-in,
+reload, failed and successful sign-out, and account switching.
 
 The preview calculation module provides deterministic client-side estimates for
 the batch builder. A production integration must validate ownership and inputs,

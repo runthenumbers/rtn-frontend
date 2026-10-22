@@ -2,6 +2,7 @@ export type AppRoute =
   | "/"
   | "/sign-in"
   | "/sign-up"
+  | "/verify-email"
   | "/forgot-password"
   | "/onboarding"
   | "/dashboard"

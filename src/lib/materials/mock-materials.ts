@@ -1,3 +1,4 @@
+import { previewStorageKey } from "@/lib/onboarding/preview-scope";
 import { isMaterialUnit, type MaterialUnit } from "@/lib/domain/material-units";
 
 export const materialCategories = [
@@ -154,7 +155,7 @@ const materialCaches: Record<
 };
 
 function storageKey(journey: "new" | "returning") {
-  return `rtn:preview-materials:${journey}`;
+  return previewStorageKey(`rtn:preview-materials:${journey}`);
 }
 
 function isMaterialCategory(value: unknown): value is MaterialCategory {

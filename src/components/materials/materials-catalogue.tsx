@@ -4,11 +4,6 @@ import Link from "next/link";
 import { useMemo, useState, useSyncExternalStore } from "react";
 
 import { EmptyState } from "@/components/ui/feedback";
-import {
-  getMockSessionServerSnapshot,
-  getMockSessionSnapshot,
-  subscribeToMockSession,
-} from "@/lib/auth/mock-session";
 import { formatCurrency } from "@/lib/dashboard/mock-dashboard";
 import type { CurrencyCode } from "@/lib/domain/currencies";
 import { formatMaterialQuantity } from "@/lib/domain/material-units";
@@ -39,11 +34,6 @@ const inputClassName =
   "min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/20";
 
 export function MaterialsCatalogue() {
-  const session = useSyncExternalStore(
-    subscribeToMockSession,
-    getMockSessionSnapshot,
-    getMockSessionServerSnapshot,
-  );
   const workspace = useSyncExternalStore(
     subscribeToMockWorkspace,
     getMockWorkspaceSnapshot,
@@ -53,7 +43,7 @@ export function MaterialsCatalogue() {
   const [category, setCategory] = useState("all");
   const [stockStatus, setStockStatus] = useState("all");
   const currency: CurrencyCode = workspace?.baseCurrency ?? "GBP";
-  const journey = session?.journey ?? "new";
+  const journey = "new" as const;
   const materials = useSyncExternalStore(
     subscribeToMockMaterials,
     () => getMockMaterials(journey),
