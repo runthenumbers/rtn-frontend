@@ -1,7 +1,23 @@
+export interface WorkspaceContext {
+  workspace: {
+    id: string;
+    businessName: string;
+    businessType: string | null;
+    country: string | null;
+    baseCurrency: string;
+    secondaryCurrency: string | null;
+  };
+  membership: {
+    id: string;
+    role: "OWNER" | "ADMIN" | "MEMBER";
+  };
+}
+
 export interface SessionUser {
   id: string;
   email: string;
   name: string;
+  workspaceContext: WorkspaceContext | null;
 }
 
 export type AuthErrorCode =
@@ -25,6 +41,49 @@ export class AuthError extends Error {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function parseWorkspaceContext(value: unknown): WorkspaceContext | null {
+  if (value === null) return null;
+  if (!isRecord(value)) throw new AuthError("UNEXPECTED");
+
+  const { workspace, membership } = value;
+  if (
+    !isRecord(workspace) ||
+    !isRecord(membership) ||
+    typeof workspace.id !== "string" ||
+    typeof workspace.businessName !== "string" ||
+    !(
+      workspace.businessType === null ||
+      typeof workspace.businessType === "string"
+    ) ||
+    !(workspace.country === null || typeof workspace.country === "string") ||
+    typeof workspace.baseCurrency !== "string" ||
+    !(
+      workspace.secondaryCurrency === null ||
+      typeof workspace.secondaryCurrency === "string"
+    ) ||
+    typeof membership.id !== "string" ||
+    !(
+      membership.role === "OWNER" ||
+      membership.role === "ADMIN" ||
+      membership.role === "MEMBER"
+    )
+  ) {
+    throw new AuthError("UNEXPECTED");
+  }
+
+  return {
+    workspace: {
+      id: workspace.id,
+      businessName: workspace.businessName,
+      businessType: workspace.businessType,
+      country: workspace.country,
+      baseCurrency: workspace.baseCurrency,
+      secondaryCurrency: workspace.secondaryCurrency,
+    },
+    membership: { id: membership.id, role: membership.role },
+  };
 }
 
 async function request(path: string, body?: unknown): Promise<Response> {
@@ -87,7 +146,12 @@ export async function getSession(): Promise<SessionUser | null> {
     typeof user.name !== "string"
   )
     throw new AuthError("UNEXPECTED");
-  return { id: user.id, email: user.email, name: user.name };
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    workspaceContext: parseWorkspaceContext(user.workspaceContext),
+  };
 }
 
 async function submit(action: string, input: unknown): Promise<void> {

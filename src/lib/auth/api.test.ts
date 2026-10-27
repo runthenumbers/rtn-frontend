@@ -52,13 +52,105 @@ test("session responses retain only public user fields", async () => {
     name: "Example",
     email: "user@example.com",
     passwordHash: "never retain",
+    workspaceContext: null,
   });
   assert.deepEqual(await getSession(), {
     id: "user-id",
     name: "Example",
     email: "user@example.com",
+    workspaceContext: null,
   });
 });
+
+const sessionUser = {
+  id: "user-id",
+  name: "Example",
+  email: "user@example.com",
+};
+
+const workspace = {
+  id: "workspace-id",
+  businessName: "Example Business",
+  businessType: null,
+  country: null,
+  baseCurrency: "GBP",
+  secondaryCurrency: null,
+};
+
+for (const role of ["OWNER", "ADMIN", "MEMBER"]) {
+  test(`session parsing retains ${role} workspace context and strips extra fields`, async () => {
+    respond({
+      ...sessionUser,
+      workspaceContext: {
+        workspace: { ...workspace, archivedAt: null },
+        membership: { id: "membership-id", role, userId: "private" },
+        extra: "discard",
+      },
+    });
+    assert.deepEqual(await getSession(), {
+      ...sessionUser,
+      workspaceContext: {
+        workspace,
+        membership: { id: "membership-id", role },
+      },
+    });
+  });
+}
+
+test("session parsing retains populated optional workspace fields", async () => {
+  const workspaceContext = {
+    workspace: {
+      ...workspace,
+      businessType: "manufacturing",
+      country: "GB",
+      secondaryCurrency: "USD",
+    },
+    membership: { id: "membership-id", role: "OWNER" },
+  };
+  respond({ ...sessionUser, workspaceContext });
+  assert.deepEqual(await getSession(), { ...sessionUser, workspaceContext });
+});
+
+const validContext = {
+  workspace,
+  membership: { id: "membership-id", role: "OWNER" },
+};
+
+for (const [label, workspaceContext] of Object.entries({
+  missing: undefined,
+  array: [],
+  "missing workspace": { membership: validContext.membership },
+  "missing membership": { workspace },
+  "unknown role": {
+    ...validContext,
+    membership: { id: "id", role: "SUPERUSER" },
+  },
+  "invalid membership id": {
+    ...validContext,
+    membership: { id: 42, role: "OWNER" },
+  },
+  ...Object.fromEntries(
+    Object.keys(workspace).flatMap((field) => [
+      [
+        `missing ${field}`,
+        { ...validContext, workspace: { ...workspace, [field]: undefined } },
+      ],
+      [
+        `invalid ${field}`,
+        { ...validContext, workspace: { ...workspace, [field]: 42 } },
+      ],
+    ]),
+  ),
+})) {
+  test(`session parsing rejects ${label} workspace context`, async () => {
+    respond({ ...sessionUser, workspaceContext });
+    await assert.rejects(
+      getSession(),
+      (error: unknown) =>
+        error instanceof AuthError && error.code === "UNEXPECTED",
+    );
+  });
+}
 
 test("malformed session responses fail instead of authenticating", async () => {
   respond({ name: "Example" });
