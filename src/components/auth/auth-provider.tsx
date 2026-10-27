@@ -25,6 +25,7 @@ type AuthState = {
 interface AuthContextValue extends AuthState {
   refresh: () => Promise<SessionUser | null>;
   signOut: () => Promise<void>;
+  updateWorkspaceContext: (context: WorkspaceContext) => void;
 }
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -62,6 +63,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     channel.current?.postMessage("session-changed");
   }, []);
 
+  const updateWorkspaceContext = useCallback((context: WorkspaceContext) => {
+    ++sequence.current;
+    setState((current) => {
+      if (
+        current.status !== "authenticated" ||
+        !current.user ||
+        current.user.workspaceContext?.workspace.id !== context.workspace.id ||
+        current.user.workspaceContext.membership.id !== context.membership.id
+      )
+        return current;
+      return {
+        ...current,
+        user: { ...current.user, workspaceContext: context },
+      };
+    });
+    channel.current?.postMessage("session-changed");
+  }, []);
+
   useEffect(() => {
     const requests = sequence;
     const revalidate = () => {
@@ -82,7 +101,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   return (
-    <AuthContext.Provider value={{ ...state, refresh, signOut }}>
+    <AuthContext.Provider
+      value={{ ...state, refresh, signOut, updateWorkspaceContext }}
+    >
       <Fragment key={state.user?.id ?? "guest"}>{children}</Fragment>
     </AuthContext.Provider>
   );

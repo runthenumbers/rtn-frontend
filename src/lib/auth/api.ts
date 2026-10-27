@@ -43,7 +43,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function parseWorkspaceContext(value: unknown): WorkspaceContext | null {
+export function parseWorkspaceContext(value: unknown): WorkspaceContext | null {
   if (value === null) return null;
   if (!isRecord(value)) throw new AuthError("UNEXPECTED");
 

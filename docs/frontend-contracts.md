@@ -99,11 +99,24 @@ browser. It must validate them independently.
 
 ## Workspace settings
 
-Settings displays the saved workspace profile and currencies from `/auth/me` as
-read-only. The preview settings writer has been removed. Editing returns with
-the Week 3 workspace update endpoint. That update must authorize the user,
-validate catalogue values, persist atomically and refresh session context so
-workspace names and currency displays stay consistent throughout the UI.
+Settings loads `GET /api/v1/workspaces/:workspaceId` and saves the complete editable
+profile with `PUT` to that endpoint. Both use the cookie proxy and disable caching.
+The read/update response is the same WorkspaceContext shape as /auth/me. Required
+businessName/baseCurrency and nullable businessType/country/secondaryCurrency are
+sent explicitly; blank optional selections become null. OWNER and ADMIN may
+update; MEMBER fields are disabled and the backend enforces permissions.
+
+Successful saves use the canonical response to update local form state and the
+auth provider, refreshing workspace naming and currency displays. Other tabs
+revalidate through BroadcastChannel. Reloads fetch persisted settings. Field
+errors map to inputs; failed saves retain drafts and offer retry. 401/404 trigger
+session revalidation, 403 reports insufficient access, and 409 explains the
+base-currency lock after materials exist. No automatic currency conversion occurs.
+Concurrent editors currently use last-write-wins semantics.
+
+The material schema and decimal-string contracts are now defined in
+`rtn-backend/docs/material-api-contract.md`. Material CRUD and replacing preview
+material adapters remain Week 4 work.
 
 ## Dashboard view model
 

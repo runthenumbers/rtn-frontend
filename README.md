@@ -136,7 +136,10 @@ Route gates and sign-in redirects use `/auth/me.workspaceContext`: null requires
 onboarding, while a populated context enters the workspace. Workspace name and
 currency throughout the UI come from this server context; no browser workspace
 record is used. Reloads and new tabs resolve the persisted workspace. Settings
-display the saved profile as read-only until the settings update API is available.
+loads the saved profile from GET /api/v1/workspaces/:workspaceId and saves it with
+PUT to the same endpoint. OWNER and ADMIN can edit; MEMBER sees disabled fields.
+Saved values update session context and other tabs. Failed saves retain the draft;
+base-currency conflicts explain why existing material prices prevent a change.
 Materials, batches and dashboard aggregations remain browser previews, with their
 storage scoped to the authenticated user; they do not establish tenant authorization.
 
@@ -160,3 +163,8 @@ decimal values. See `docs/frontend-contracts.md` for the replacement contracts.
 
 The `master` branch deploys to Netlify at
 [rtnweb.netlify.app](https://rtnweb.netlify.app/).
+
+Week 3 requires the backend material-foundation migration before deployment.
+Follow `rtn-backend/docs/week-3-migration-runbook.md`, deploy the backend first,
+then deploy this frontend. Run `npm run test:settings` for settings API contract,
+nullable-field clearing, tenant response checks and error-handling tests.
