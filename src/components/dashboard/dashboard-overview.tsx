@@ -12,7 +12,6 @@ import {
   formatCurrency,
   getMockDashboard,
 } from "@/lib/dashboard/mock-dashboard";
-import type { CurrencyCode } from "@/lib/domain/currencies";
 import {
   getMockBatches,
   subscribeToMockBatches,
@@ -21,11 +20,7 @@ import {
   getMockMaterials,
   subscribeToMockMaterials,
 } from "@/lib/materials/mock-materials";
-import {
-  getMockWorkspaceServerSnapshot,
-  getMockWorkspaceSnapshot,
-  subscribeToMockWorkspace,
-} from "@/lib/onboarding/mock-workspace";
+import { useWorkspace } from "@/components/auth/auth-provider";
 import { routes } from "@/lib/routes";
 
 const primaryActionClassName =
@@ -35,12 +30,8 @@ const secondaryActionClassName =
   "inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700";
 
 export function DashboardOverview() {
-  const workspace = useSyncExternalStore(
-    subscribeToMockWorkspace,
-    getMockWorkspaceSnapshot,
-    getMockWorkspaceServerSnapshot,
-  );
-  const currency: CurrencyCode = workspace?.baseCurrency ?? "GBP";
+  const workspace = useWorkspace();
+  const currency: string = workspace?.baseCurrency ?? "GBP";
   const journey = "new" as const;
   const materials = useSyncExternalStore(
     subscribeToMockMaterials,

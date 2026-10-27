@@ -17,7 +17,8 @@ import {
   isCountryCode,
 } from "@/lib/domain/business-options";
 import { isCurrencyCode, type CurrencyCode } from "@/lib/domain/currencies";
-import { saveBusinessDetails } from "@/lib/onboarding/mock-onboarding";
+import { completeOnboarding, WorkspaceError } from "@/lib/onboarding/api";
+import { useAuth } from "@/components/auth/auth-provider";
 import { routes } from "@/lib/routes";
 import { useCatalogues } from "@/components/catalogues/catalogues-provider";
 
@@ -31,6 +32,8 @@ interface BusinessDetailsErrors {
 
 export function BusinessDetailsForm() {
   const router = useRouter();
+  const { refresh } = useAuth();
+  const submittingRef = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
   const [businessName, setBusinessName] = useState("");
   const [businessType, setBusinessType] = useState("");
@@ -81,12 +84,13 @@ export function BusinessDetailsForm() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submittingRef.current) return;
     setFormError(undefined);
 
     const nextErrors: BusinessDetailsErrors = {};
 
-    if (businessName.trim().length < 2) {
-      nextErrors.businessName = "Enter your business name.";
+    if (businessName.trim().length < 2 || businessName.trim().length > 160) {
+      nextErrors.businessName = "Enter a business name of 2–160 characters.";
     }
 
     if (businessType && !isBusinessType(businessType)) {
@@ -127,21 +131,47 @@ export function BusinessDetailsForm() {
       ? secondaryCurrency
       : undefined;
 
+    submittingRef.current = true;
     setIsSubmitting(true);
 
     try {
-      await saveBusinessDetails({
-        baseCurrency,
-        businessName: businessName.trim(),
-        businessType: validBusinessType,
-        country: validCountry,
-        secondaryCurrency: validSecondaryCurrency,
-      });
+      await completeOnboarding(
+        {
+          baseCurrency,
+          businessName: businessName.trim(),
+          businessType: validBusinessType,
+          country: validCountry,
+          secondaryCurrency: validSecondaryCurrency,
+        },
+        refresh,
+      );
       setIsDirty(false);
-      router.push(routes.dashboard);
-    } catch {
-      setFormError("We couldn't save your business details. Please try again.");
+      router.replace(routes.dashboard);
+      router.refresh();
+    } catch (error) {
+      if (error instanceof WorkspaceError && error.code === "VALIDATION") {
+        setErrors({
+          businessName: error.fieldErrors.businessName?.[0],
+          businessType: error.fieldErrors.businessType?.[0],
+          country: error.fieldErrors.country?.[0],
+          baseCurrency: error.fieldErrors.baseCurrency?.[0],
+          secondaryCurrency: error.fieldErrors.secondaryCurrency?.[0],
+        });
+        setFormError("Check the highlighted fields and try again.");
+        focusFirstInvalidField();
+      } else if (
+        error instanceof WorkspaceError &&
+        error.code === "UNAUTHENTICATED"
+      ) {
+        setIsDirty(false);
+        router.replace(routes.signIn);
+      } else {
+        setFormError(
+          "We couldn't confirm your workspace was saved. Please try again.",
+        );
+      }
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   }
@@ -160,6 +190,7 @@ export function BusinessDetailsForm() {
         error={errors.businessName}
         label="Business name"
         name="businessName"
+        maxLength={160}
         placeholder="Your business name"
         required
         value={businessName}

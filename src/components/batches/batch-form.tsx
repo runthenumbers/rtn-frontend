@@ -30,7 +30,6 @@ import {
 import {
   formatCurrencyDecimal,
   formatUnitCostDecimal,
-  type CurrencyCode,
 } from "@/lib/domain/currencies";
 import {
   formatMaterialQuantity,
@@ -42,11 +41,7 @@ import {
   subscribeToMockMaterials,
   type MaterialSummary,
 } from "@/lib/materials/mock-materials";
-import {
-  getMockWorkspaceServerSnapshot,
-  getMockWorkspaceSnapshot,
-  subscribeToMockWorkspace,
-} from "@/lib/onboarding/mock-workspace";
+import { useWorkspace } from "@/components/auth/auth-provider";
 import { routes } from "@/lib/routes";
 
 interface DraftLine {
@@ -78,11 +73,7 @@ const emptyMaterials: readonly MaterialSummary[] = [];
 export function BatchForm() {
   const { currencies } = useCatalogues();
   const { user: session } = useAuth();
-  const workspace = useSyncExternalStore(
-    subscribeToMockWorkspace,
-    getMockWorkspaceSnapshot,
-    getMockWorkspaceServerSnapshot,
-  );
+  const workspace = useWorkspace();
   const journey = "new" as const;
   const materials = useSyncExternalStore(
     subscribeToMockMaterials,
@@ -125,7 +116,7 @@ function BatchFormFields({
   journey,
   materials,
 }: {
-  currency: CurrencyCode;
+  currency: string;
   journey: "new" | "returning";
   materials: readonly MaterialSummary[];
 }) {

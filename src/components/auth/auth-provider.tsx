@@ -14,6 +14,7 @@ import {
   getSession,
   signOut as endSession,
   type SessionUser,
+  type WorkspaceContext,
 } from "@/lib/auth/api";
 import { setPreviewUser } from "@/lib/onboarding/preview-scope";
 
@@ -91,4 +92,8 @@ export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
   if (!context) throw new Error("AuthProvider is required");
   return context;
+}
+
+export function useWorkspace(): WorkspaceContext["workspace"] | null {
+  return useAuth().user?.workspaceContext?.workspace ?? null;
 }

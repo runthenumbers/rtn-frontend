@@ -4,8 +4,7 @@ import { BusinessSettingsForm } from "@/components/settings/business-settings-fo
 
 export const metadata: Metadata = {
   title: "Settings",
-  description:
-    "Manage the active RTN business profile and currency preferences.",
+  description: "View the active RTN business profile and currency preferences.",
 };
 
 export default function SettingsPage() {
@@ -19,7 +18,7 @@ export default function SettingsPage() {
           Settings
         </h1>
         <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">
-          Manage the business details and financial display preferences for your
+          View the saved business details and currency preferences for your
           active workspace.
         </p>
       </header>

@@ -20,7 +20,7 @@ export function isCurrencyCode(value: string): value is CurrencyCode {
   return supportedCurrencyCodes.has(value);
 }
 
-export function formatCurrencyDecimal(amount: string, currency: CurrencyCode) {
+export function formatCurrencyDecimal(amount: string, currency: string) {
   return new Intl.NumberFormat("en", {
     style: "currency",
     currency,
@@ -28,7 +28,7 @@ export function formatCurrencyDecimal(amount: string, currency: CurrencyCode) {
   }).format(Number(amount));
 }
 
-export function formatUnitCostDecimal(amount: string, currency: CurrencyCode) {
+export function formatUnitCostDecimal(amount: string, currency: string) {
   return new Intl.NumberFormat("en", {
     style: "currency",
     currency,

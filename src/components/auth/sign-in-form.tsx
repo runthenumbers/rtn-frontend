@@ -12,7 +12,6 @@ import { isValidEmail } from "@/lib/auth/validation";
 import { routes } from "@/lib/routes";
 import { useAuth } from "./auth-provider";
 import { VerificationNotice } from "./verification-notice";
-import { getMockWorkspaceSnapshot } from "@/lib/onboarding/mock-workspace";
 
 interface SignInErrors {
   email?: string;
@@ -69,7 +68,7 @@ export function SignInForm() {
       const user = await refresh();
       if (!user) throw new AuthError("UNEXPECTED");
       router.replace(
-        getMockWorkspaceSnapshot() ? routes.dashboard : routes.onboarding,
+        user.workspaceContext ? routes.dashboard : routes.onboarding,
       );
       router.refresh();
     } catch (error) {

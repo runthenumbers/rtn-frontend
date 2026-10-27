@@ -1,14 +1,9 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useAuth } from "./auth-provider";
 import { LoadingState } from "@/components/ui/feedback";
-import {
-  getMockWorkspaceSnapshot,
-  getMockWorkspaceServerSnapshot,
-  subscribeToMockWorkspace,
-} from "@/lib/onboarding/mock-workspace";
 import { routes } from "@/lib/routes";
 
 function RouteGate({
@@ -22,12 +17,8 @@ function RouteGate({
   const pathname = usePathname();
   const recovery =
     pathname === routes.resetPassword || pathname === routes.forgotPassword;
-  const { status, refresh } = useAuth();
-  const workspace = useSyncExternalStore(
-    subscribeToMockWorkspace,
-    getMockWorkspaceSnapshot,
-    getMockWorkspaceServerSnapshot,
-  );
+  const { status, user, refresh } = useAuth();
+  const workspace = user?.workspaceContext;
   let destination: string | null = null;
   if (status === "authenticated") {
     if (mode === "guest" && !recovery)

@@ -2,21 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { routes } from "@/lib/routes";
 import { useAuth } from "@/components/auth/auth-provider";
-import {
-  getMockWorkspaceServerSnapshot,
-  getMockWorkspaceSnapshot,
-  subscribeToMockWorkspace,
-} from "@/lib/onboarding/mock-workspace";
+import { useWorkspace } from "@/components/auth/auth-provider";
 
 const navigation = [
   { href: routes.dashboard, label: "Dashboard" },
@@ -76,11 +66,7 @@ export function AppShell({ children }: AppShellProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
-  const workspace = useSyncExternalStore(
-    subscribeToMockWorkspace,
-    getMockWorkspaceSnapshot,
-    getMockWorkspaceServerSnapshot,
-  );
+  const workspace = useWorkspace();
 
   useEffect(() => {
     const dialog = dialogRef.current;

@@ -5,7 +5,6 @@ import { useMemo, useState, useSyncExternalStore } from "react";
 
 import { EmptyState } from "@/components/ui/feedback";
 import { formatCurrency } from "@/lib/dashboard/mock-dashboard";
-import type { CurrencyCode } from "@/lib/domain/currencies";
 import { formatMaterialQuantity } from "@/lib/domain/material-units";
 import {
   getMockMaterials,
@@ -14,11 +13,7 @@ import {
   type MaterialSummary,
   subscribeToMockMaterials,
 } from "@/lib/materials/mock-materials";
-import {
-  getMockWorkspaceServerSnapshot,
-  getMockWorkspaceSnapshot,
-  subscribeToMockWorkspace,
-} from "@/lib/onboarding/mock-workspace";
+import { useWorkspace } from "@/components/auth/auth-provider";
 import { routes } from "@/lib/routes";
 
 const stockStatuses: readonly MaterialStockStatus[] = [
@@ -34,15 +29,11 @@ const inputClassName =
   "min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/20";
 
 export function MaterialsCatalogue() {
-  const workspace = useSyncExternalStore(
-    subscribeToMockWorkspace,
-    getMockWorkspaceSnapshot,
-    getMockWorkspaceServerSnapshot,
-  );
+  const workspace = useWorkspace();
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("all");
   const [stockStatus, setStockStatus] = useState("all");
-  const currency: CurrencyCode = workspace?.baseCurrency ?? "GBP";
+  const currency: string = workspace?.baseCurrency ?? "GBP";
   const journey = "new" as const;
   const materials = useSyncExternalStore(
     subscribeToMockMaterials,
@@ -216,7 +207,7 @@ function MaterialsTable({
   currency,
   materials,
 }: {
-  currency: CurrencyCode;
+  currency: string;
   materials: readonly MaterialSummary[];
 }) {
   return (
@@ -303,7 +294,7 @@ function MaterialsCards({
   currency,
   materials,
 }: {
-  currency: CurrencyCode;
+  currency: string;
   materials: readonly MaterialSummary[];
 }) {
   return (

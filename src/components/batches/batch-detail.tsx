@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useSyncExternalStore } from "react";
 
 import {
   BatchStatusBadge,
@@ -16,13 +15,8 @@ import {
 import {
   formatCurrencyDecimal,
   formatUnitCostDecimal,
-  type CurrencyCode,
 } from "@/lib/domain/currencies";
-import {
-  getMockWorkspaceServerSnapshot,
-  getMockWorkspaceSnapshot,
-  subscribeToMockWorkspace,
-} from "@/lib/onboarding/mock-workspace";
+import { useWorkspace } from "@/components/auth/auth-provider";
 import { routes } from "@/lib/routes";
 
 const secondaryActionClassName =
@@ -30,11 +24,7 @@ const secondaryActionClassName =
 
 export function BatchDetail({ batchId }: { batchId: string }) {
   const { user: session } = useAuth();
-  const workspace = useSyncExternalStore(
-    subscribeToMockWorkspace,
-    getMockWorkspaceSnapshot,
-    getMockWorkspaceServerSnapshot,
-  );
+  const workspace = useWorkspace();
 
   if (!session) {
     return <LoadingState label="Loading batch details" />;
@@ -58,7 +48,7 @@ export function BatchDetail({ batchId }: { batchId: string }) {
     );
   }
 
-  const currency: CurrencyCode = workspace?.baseCurrency ?? "GBP";
+  const currency: string = workspace?.baseCurrency ?? "GBP";
 
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -203,7 +193,7 @@ function BatchLinesTable({
   lines,
 }: {
   batchName: string;
-  currency: CurrencyCode;
+  currency: string;
   lines: readonly BatchLineViewModel[];
 }) {
   return (
@@ -260,7 +250,7 @@ function BatchLinesList({
   currency,
   lines,
 }: {
-  currency: CurrencyCode;
+  currency: string;
   lines: readonly BatchLineViewModel[];
 }) {
   return (

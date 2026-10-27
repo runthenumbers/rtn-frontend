@@ -1,5 +1,4 @@
 import type { BatchViewModel } from "@/lib/batches/mock-batches";
-import type { CurrencyCode } from "@/lib/domain/currencies";
 import type { MaterialSummary } from "@/lib/materials/mock-materials";
 
 export interface RecentBatchSummary {
@@ -39,10 +38,7 @@ export function getMockDashboard(
   };
 }
 
-export function formatCurrency(
-  amount: number | string,
-  currency: CurrencyCode,
-) {
+export function formatCurrency(amount: number | string, currency: string) {
   return new Intl.NumberFormat("en", {
     style: "currency",
     currency,

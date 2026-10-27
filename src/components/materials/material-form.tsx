@@ -2,13 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type FormEvent,
-} from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { useCatalogues } from "@/components/catalogues/catalogues-provider";
 import { FormError } from "@/components/auth/form-error";
@@ -33,11 +27,7 @@ import {
   type MaterialInput,
   type MaterialSummary,
 } from "@/lib/materials/mock-materials";
-import {
-  getMockWorkspaceServerSnapshot,
-  getMockWorkspaceSnapshot,
-  subscribeToMockWorkspace,
-} from "@/lib/onboarding/mock-workspace";
+import { useWorkspace } from "@/components/auth/auth-provider";
 import { routes } from "@/lib/routes";
 
 interface MaterialFormProps {
@@ -107,11 +97,7 @@ function MaterialFormFields({
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
-  const workspace = useSyncExternalStore(
-    subscribeToMockWorkspace,
-    getMockWorkspaceSnapshot,
-    getMockWorkspaceServerSnapshot,
-  );
+  const workspace = useWorkspace();
   const currency = currencies.find(
     (option) => option.code === workspace?.baseCurrency,
   );

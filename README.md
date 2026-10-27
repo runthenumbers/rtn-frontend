@@ -126,19 +126,30 @@ submission. Success clears the cookie and reloads sign-in with a confirmation.
 Recovery pages remain accessible while signed in and do not require workspace
 onboarding. Registration and reset accept passwords of 6–128 characters.
 
-Workspace onboarding, settings, materials and batches remain browser previews.
-Their sessionStorage keys are scoped to the authenticated user, and they do not
-establish authentication or tenant authorization. A user without a local preview
-workspace enters onboarding. Backend workspace/membership integration remains
-separate work; preview workspace completion is not durable across browsers/tabs.
+Workspace onboarding posts to `/api/v1/workspaces` through the same-origin proxy.
+After creation, it refreshes `/auth/me` before entering the dashboard. Conflicts
+and uncertain network/server failures are reconciled against `/auth/me` so a lost
+creation response does not require another workspace. Backend validation errors
+appear against the matching fields, and expired sessions return to sign-in.
+
+Route gates and sign-in redirects use `/auth/me.workspaceContext`: null requires
+onboarding, while a populated context enters the workspace. Workspace name and
+currency throughout the UI come from this server context; no browser workspace
+record is used. Reloads and new tabs resolve the persisted workspace. Settings
+display the saved profile as read-only until the settings update API is available.
+Materials, batches and dashboard aggregations remain browser previews, with their
+storage scoped to the authenticated user; they do not establish tenant authorization.
 
 Set backend `FRONTEND_URL` to the exact frontend origin (`http://localhost:3000`
 for local development). Use `npm run dev` against a development backend; production
 frontend/backend deployments must both use production cookie settings.
 
 Run `npm run test:auth` for authentication request/error-mapping and password-policy
-tests. Browser checks should cover signup, explicit email verification, sign-in,
-reload, failed and successful sign-out, and account switching.
+tests. Run `npm run test:onboarding` for workspace submission, field-error mapping,
+session refresh, conflict and lost-response recovery tests. Browser checks should
+cover signup, explicit email verification, sign-in, onboarding, reload, new tabs,
+failed and successful sign-out, and account switching. Deploy the Week 2 backend
+before deploying this frontend.
 
 The preview calculation module provides deterministic client-side estimates for
 the batch builder. A production integration must validate ownership and inputs,

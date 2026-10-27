@@ -1,8 +1,7 @@
 # Frontend integration contracts
 
-This document records the boundaries currently simulated by the UI. The mock
-implementations are replaceable adapters, not production authentication,
-authorization, persistence, or financial data.
+This document records live integration contracts and the remaining preview
+boundaries. Material, batch and dashboard adapters still simulate business data.
 
 ## Authentication session
 
@@ -14,6 +13,17 @@ interface SessionUser {
   id: string;
   email: string;
   name: string;
+  workspaceContext: {
+    workspace: {
+      id: string;
+      businessName: string;
+      businessType: string | null;
+      country: string | null;
+      baseCurrency: string;
+      secondaryCurrency: string | null;
+    };
+    membership: { id: string; role: "OWNER" | "ADMIN" | "MEMBER" };
+  } | null;
 }
 ```
 
@@ -24,15 +34,16 @@ on the server. Session tokens are never stored in localStorage or sessionStorage
 
 - registration success → verification instructions; no session is created
 - verification link → explicit confirmation → sign in
-- authenticated account without a local preview workspace → onboarding
-- authenticated account with a local preview workspace → dashboard
+- authenticated account with null workspace context → onboarding
+- authenticated account with populated workspace context → dashboard
 - successful sign-out → server revocation, cookie deletion, sign-in screen
 - failed sign-out → error and retry, without claiming the session ended
 
-The backend does not yet return memberships or onboarding state. Workspace gates
-currently use user-scoped preview workspace data independently of authentication.
-All authenticated users start with empty preview collections; sign-in never seeds
-another user's demo business. Business data still needs backend integration.
+Workspace gates and workspace display data use the server's workspace context.
+Missing or malformed context is an error rather than a preview fallback. The
+backend selects the earliest membership by creation time and ID, excluding
+archived workspaces. Workspace switching remains deferred. Material and batch
+preview collections are still scoped to the authenticated user.
 
 ### Authentication errors
 
@@ -54,7 +65,7 @@ accessible even while signed in and do not depend on workspace onboarding.
 
 ## Business onboarding
 
-The frontend submits:
+The frontend submits to `POST /api/v1/workspaces` using the same-origin proxy:
 
 ```ts
 interface BusinessDetailsInput {
@@ -68,33 +79,31 @@ interface BusinessDetailsInput {
 
 Rules:
 
-- `businessName` is required after trimming.
+- `businessName` must contain 2–160 characters after trimming.
 - `baseCurrency` must be in the canonical currency catalogue.
 - `secondaryCurrency` is optional and must differ from `baseCurrency`.
 - optional business type and country values must come from their catalogues.
 - successful creation associates the business with the authenticated internal
   user, makes it active, and marks onboarding complete atomically.
-- failed creation leaves onboarding incomplete and returns field or general
-  errors without discarding entered values.
+- validation failures return field errors without discarding entered values.
+
+Creation returns `201` with workspace and OWNER membership context. The client
+refreshes `/auth/me` and requires persisted context before entering the dashboard.
+A `409`, lost response or server failure triggers a session refresh to discover
+whether creation already committed. If no workspace exists, the form remains
+available for retry; expired sessions return to sign-in. No workspace record is
+saved in browser storage.
 
 The backend must not trust catalogue membership or ownership claims from the
 browser. It must validate them independently.
 
 ## Workspace settings
 
-Settings reads and updates the same active `MockWorkspace` record created by
-onboarding. The editable contract is identical to `BusinessDetailsInput`: the
-business name is trimmed and required, business type and country are optional
-catalogue values, the base currency is required, and the optional secondary
-currency must be supported and different from the base currency.
-
-The preview adapter stores the record in `sessionStorage`, publishes same-tab
-updates to workspace subscribers, and therefore updates shell naming and all
-currency-formatted screens immediately. Currency changes alter display
-formatting only; they do not convert or recalculate recorded monetary values.
-A production update must be scoped to an authorised active business, validate
-catalogue values again, persist atomically, and return the canonical updated
-business profile.
+Settings displays the saved workspace profile and currencies from `/auth/me` as
+read-only. The preview settings writer has been removed. Editing returns with
+the Week 3 workspace update endpoint. That update must authorize the user,
+validate catalogue values, persist atomically and refresh session context so
+workspace names and currency displays stay consistent throughout the UI.
 
 ## Dashboard view model
 
