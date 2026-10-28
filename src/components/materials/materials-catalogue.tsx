@@ -1,19 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useState } from "react";
 
-import { EmptyState } from "@/components/ui/feedback";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/feedback";
 import { formatCurrency } from "@/lib/dashboard/mock-dashboard";
 import { formatMaterialQuantity } from "@/lib/domain/material-units";
 import {
-  getMockMaterials,
   materialCategories,
   type MaterialStockStatus,
   type MaterialSummary,
-  subscribeToMockMaterials,
-} from "@/lib/materials/mock-materials";
-import { useWorkspace } from "@/components/auth/auth-provider";
+} from "@/lib/materials/types";
+import { useMaterials } from "./materials-provider";
+import { useAuth, useWorkspace } from "@/components/auth/auth-provider";
 import { routes } from "@/lib/routes";
 
 const stockStatuses: readonly MaterialStockStatus[] = [
@@ -34,12 +33,10 @@ export function MaterialsCatalogue() {
   const [category, setCategory] = useState("all");
   const [stockStatus, setStockStatus] = useState("all");
   const currency: string = workspace?.baseCurrency ?? "GBP";
-  const journey = "new" as const;
-  const materials = useSyncExternalStore(
-    subscribeToMockMaterials,
-    () => getMockMaterials(journey),
-    () => getMockMaterials(journey),
-  );
+  const { items: materials, status, retry } = useMaterials();
+  const { user } = useAuth();
+  const role = user?.workspaceContext?.membership.role;
+  const canEdit = role === "OWNER" || role === "ADMIN";
 
   const filteredMaterials = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -67,6 +64,20 @@ export function MaterialsCatalogue() {
     setStockStatus("all");
   }
 
+  if (status === "loading") return <LoadingState label="Loading materials" />;
+  if (status === "error")
+    return (
+      <ErrorState
+        title="Unable to load materials"
+        description="Your materials could not be loaded. Please try again."
+        action={
+          <button className={primaryActionClassName} onClick={retry}>
+            Try again
+          </button>
+        }
+      />
+    );
+
   return (
     <div className="mx-auto w-full max-w-6xl">
       <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
@@ -83,9 +94,11 @@ export function MaterialsCatalogue() {
           </p>
         </div>
 
-        <Link className={primaryActionClassName} href={routes.newMaterial}>
-          Add material
-        </Link>
+        {canEdit ? (
+          <Link className={primaryActionClassName} href={routes.newMaterial}>
+            Add material
+          </Link>
+        ) : null}
       </div>
 
       {materials.length === 0 ? (
@@ -94,12 +107,14 @@ export function MaterialsCatalogue() {
             title="No materials yet"
             description="Add your first ingredient, packaging item, or production supply to start building reliable batch costs."
             action={
-              <Link
-                className={primaryActionClassName}
-                href={routes.newMaterial}
-              >
-                Add your first material
-              </Link>
+              canEdit ? (
+                <Link
+                  className={primaryActionClassName}
+                  href={routes.newMaterial}
+                >
+                  Add your first material
+                </Link>
+              ) : undefined
             }
           />
         </div>
@@ -187,14 +202,8 @@ export function MaterialsCatalogue() {
             </div>
           ) : (
             <>
-              <MaterialsTable
-                currency={currency}
-                materials={filteredMaterials}
-              />
-              <MaterialsCards
-                currency={currency}
-                materials={filteredMaterials}
-              />
+              <MaterialsTable materials={filteredMaterials} />
+              <MaterialsCards materials={filteredMaterials} />
             </>
           )}
         </section>
@@ -204,10 +213,8 @@ export function MaterialsCatalogue() {
 }
 
 function MaterialsTable({
-  currency,
   materials,
 }: {
-  currency: string;
   materials: readonly MaterialSummary[];
 }) {
   return (
@@ -255,7 +262,10 @@ function MaterialsTable({
                 </td>
                 <td className="px-5 py-4 text-right text-sm text-slate-700">
                   <span className="font-semibold text-slate-950">
-                    {formatCurrency(material.purchasePrice, currency)}
+                    {formatCurrency(
+                      material.purchasePrice,
+                      material.currencyCode,
+                    )}
                   </span>
                   <span className="block text-xs text-slate-500">
                     per{" "}
@@ -291,10 +301,8 @@ function MaterialsTable({
 }
 
 function MaterialsCards({
-  currency,
   materials,
 }: {
-  currency: string;
   materials: readonly MaterialSummary[];
 }) {
   return (
@@ -327,7 +335,7 @@ function MaterialsCards({
                 Purchase price
               </dt>
               <dd className="mt-1 text-sm font-semibold text-slate-950">
-                {formatCurrency(material.purchasePrice, currency)}
+                {formatCurrency(material.purchasePrice, material.currencyCode)}
                 <span className="block font-normal text-slate-500">
                   per{" "}
                   {formatMaterialQuantity(material.packQuantity, material.unit)}

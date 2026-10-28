@@ -2,14 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type FormEvent,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { useCatalogues } from "@/components/catalogues/catalogues-provider";
 import { FormError } from "@/components/auth/form-error";
@@ -36,11 +29,8 @@ import {
   isMaterialUnit,
   type MaterialUnit,
 } from "@/lib/domain/material-units";
-import {
-  getMockMaterials,
-  subscribeToMockMaterials,
-  type MaterialSummary,
-} from "@/lib/materials/mock-materials";
+import type { MaterialSummary } from "@/lib/materials/types";
+import { useMaterials } from "@/components/materials/materials-provider";
 import { useWorkspace } from "@/components/auth/auth-provider";
 import { routes } from "@/lib/routes";
 
@@ -68,22 +58,31 @@ interface LineErrors {
 
 const secondaryActionClassName =
   "inline-flex min-h-12 w-full items-center justify-center rounded-lg border border-slate-300 bg-white px-6 font-semibold text-slate-800 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 sm:w-auto";
-const emptyMaterials: readonly MaterialSummary[] = [];
 
 export function BatchForm() {
   const { currencies } = useCatalogues();
   const { user: session } = useAuth();
   const workspace = useWorkspace();
-  const journey = "new" as const;
-  const materials = useSyncExternalStore(
-    subscribeToMockMaterials,
-    () => getMockMaterials(journey),
-    () => emptyMaterials,
-  );
+  const { items: materials, status: materialStatus, retry } = useMaterials();
 
   if (!session) {
     return <LoadingState label="Loading batch builder" />;
   }
+
+  if (materialStatus === "loading")
+    return <LoadingState label="Loading batch materials" />;
+  if (materialStatus === "error")
+    return (
+      <ErrorState
+        title="Unable to load materials"
+        description="Your persisted materials could not be loaded."
+        action={
+          <button className={secondaryActionClassName} onClick={retry}>
+            Try again
+          </button>
+        }
+      />
+    );
 
   if (
     !workspace ||

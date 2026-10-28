@@ -1,5 +1,5 @@
 import type { BatchViewModel } from "@/lib/batches/mock-batches";
-import type { MaterialSummary } from "@/lib/materials/mock-materials";
+import type { MaterialSummary } from "@/lib/materials/types";
 
 export interface RecentBatchSummary {
   costPerUnit: string;

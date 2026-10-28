@@ -65,13 +65,16 @@ export function getCompatibleMaterialUnits(unit: MaterialUnit) {
     .flatMap((group) => group.units as readonly MaterialUnitOption[]);
 }
 
-export function formatMaterialQuantity(quantity: number, unit: MaterialUnit) {
+export function formatMaterialQuantity(
+  quantity: number | string,
+  unit: MaterialUnit,
+) {
   const formattedQuantity = new Intl.NumberFormat("en", {
-    maximumFractionDigits: 2,
-  }).format(quantity);
+    maximumFractionDigits: 6,
+  }).format(Number(quantity));
 
   if (unit === "item") {
-    return `${formattedQuantity} ${quantity === 1 ? "item" : "items"}`;
+    return `${formattedQuantity} ${Number(quantity) === 1 ? "item" : "items"}`;
   }
 
   return `${formattedQuantity} ${unit}`;

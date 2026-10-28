@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSyncExternalStore } from "react";
 
-import { EmptyState } from "@/components/ui/feedback";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/feedback";
 import {
   batchHref,
   BatchStatusBadge,
@@ -16,10 +16,7 @@ import {
   getMockBatches,
   subscribeToMockBatches,
 } from "@/lib/batches/mock-batches";
-import {
-  getMockMaterials,
-  subscribeToMockMaterials,
-} from "@/lib/materials/mock-materials";
+import { useMaterials } from "@/components/materials/materials-provider";
 import { useWorkspace } from "@/components/auth/auth-provider";
 import { routes } from "@/lib/routes";
 
@@ -33,11 +30,7 @@ export function DashboardOverview() {
   const workspace = useWorkspace();
   const currency: string = workspace?.baseCurrency ?? "GBP";
   const journey = "new" as const;
-  const materials = useSyncExternalStore(
-    subscribeToMockMaterials,
-    () => getMockMaterials(journey),
-    () => getMockMaterials(journey),
-  );
+  const { items: materials, status: materialStatus, retry } = useMaterials();
   const batches = useSyncExternalStore(
     subscribeToMockBatches,
     () => getMockBatches(journey),
@@ -46,6 +39,20 @@ export function DashboardOverview() {
   const dashboard = getMockDashboard(materials, batches);
   const hasBatches = dashboard.recentBatches.length > 0;
 
+  if (materialStatus === "loading")
+    return <LoadingState label="Loading dashboard materials" />;
+  if (materialStatus === "error")
+    return (
+      <ErrorState
+        title="Unable to load materials"
+        description="The dashboard could not load your materials."
+        action={
+          <button className={secondaryActionClassName} onClick={retry}>
+            Try again
+          </button>
+        }
+      />
+    );
   return (
     <div className="mx-auto w-full max-w-6xl">
       <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">

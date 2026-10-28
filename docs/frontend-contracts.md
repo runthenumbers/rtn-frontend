@@ -1,7 +1,8 @@
 # Frontend integration contracts
 
 This document records live integration contracts and the remaining preview
-boundaries. Material, batch and dashboard adapters still simulate business data.
+boundaries. Material APIs now persist business data. Batch and dashboard aggregation adapters
+remain previews.
 
 ## Authentication session
 
@@ -42,8 +43,8 @@ on the server. Session tokens are never stored in localStorage or sessionStorage
 Workspace gates and workspace display data use the server's workspace context.
 Missing or malformed context is an error rather than a preview fallback. The
 backend selects the earliest membership by creation time and ID, excluding
-archived workspaces. Workspace switching remains deferred. Material and batch
-preview collections are still scoped to the authenticated user.
+archived workspaces. Workspace switching remains deferred. Material data is fetched per workspace. Batch preview collections remain scoped
+to the authenticated user.
 
 ### Authentication errors
 
@@ -115,8 +116,7 @@ base-currency lock after materials exist. No automatic currency conversion occur
 Concurrent editors currently use last-write-wins semantics.
 
 The material schema and decimal-string contracts are now defined in
-`rtn-backend/docs/material-api-contract.md`. Material CRUD and replacing preview
-material adapters remain Week 4 work.
+`rtn-backend/docs/material-api-contract.md`. v0.4 implements material CRUD and removes the material preview adapter.
 
 ## Dashboard view model
 
@@ -145,8 +145,8 @@ interface DashboardViewModel {
 
 Authoritative decimal values should arrive as strings. Formatting belongs to
 the presentation layer; financial arithmetic does not. The preview dashboard is
-currently derived from the same mock material and batch collections as their
-catalogues so new records and counts remain coherent.
+currently derived from the live material list and preview batch collection so
+material counts agree with the persisted catalogue.
 
 An empty `recentBatches` array produces the first-time state. A populated array
 produces the recent-batches table. Counts must be scoped to the active business.
@@ -220,3 +220,20 @@ interface ApiError {
 Unexpected errors must not expose stack traces, provider details, credentials,
 or database information. The frontend should map known field errors to their
 controls and show a safe general message for everything else.
+
+## v0.4 material integration
+
+MaterialsProvider scopes the live list to the authenticated user and workspace.
+Account/workspace changes remount the provider, abort old requests and clear the
+old list. Forms GET a requested detail directly, POST new materials and PUT full
+replacements. Responses are validated against the requested workspace/material.
+The client maps category enums to UI labels, nullable supplier to a blank field,
+and unitCode to its supported unit catalogue. Stock status compares exact decimal
+strings using scaled integers; forms never convert saved inputs to numbers.
+The batch builder consumes the same exact material input strings.
+
+No sessionStorage material records are read or written. Load failures show retry
+states instead of sample records. A successful write updates the shared list,
+revalidates it and sends a workspace-scoped BroadcastChannel notification to other
+tabs. Owner/admin permissions are enforced both in UI and backend; MEMBER fields
+are disabled. Server field errors map to inputs and drafts survive failed saves.

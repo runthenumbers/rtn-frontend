@@ -4,6 +4,8 @@ import { AppRouteGate } from "@/components/auth/route-gates";
 import type { ReactNode } from "react";
 import { CataloguesProvider } from "@/components/catalogues/catalogues-provider";
 
+import { MaterialsProvider } from "@/components/materials/materials-provider";
+
 export default async function AuthenticatedLayout({
   children,
 }: {
@@ -13,7 +15,9 @@ export default async function AuthenticatedLayout({
   return (
     <AppRouteGate>
       <AppShell>
-        <CataloguesProvider>{children}</CataloguesProvider>
+        <CataloguesProvider>
+          <MaterialsProvider>{children}</MaterialsProvider>
+        </CataloguesProvider>
       </AppShell>
     </AppRouteGate>
   );

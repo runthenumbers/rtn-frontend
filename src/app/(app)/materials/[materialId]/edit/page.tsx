@@ -11,5 +11,5 @@ export default async function EditMaterialPage({
   params,
 }: PageProps<"/materials/[materialId]/edit">) {
   const { materialId } = await params;
-  return <MaterialForm materialId={materialId} />;
+  return <MaterialForm key={materialId} materialId={materialId} />;
 }

@@ -140,8 +140,8 @@ loads the saved profile from GET /api/v1/workspaces/:workspaceId and saves it wi
 PUT to the same endpoint. OWNER and ADMIN can edit; MEMBER sees disabled fields.
 Saved values update session context and other tabs. Failed saves retain the draft;
 base-currency conflicts explain why existing material prices prevent a change.
-Materials, batches and dashboard aggregations remain browser previews, with their
-storage scoped to the authenticated user; they do not establish tenant authorization.
+Materials now use tenant-scoped backend persistence. Batch storage and dashboard
+aggregation remain previews; their storage is scoped to the authenticated user.
 
 Set backend `FRONTEND_URL` to the exact frontend origin (`http://localhost:3000`
 for local development). Use `npm run dev` against a development backend; production
@@ -151,8 +151,7 @@ Run `npm run test:auth` for authentication request/error-mapping and password-po
 tests. Run `npm run test:onboarding` for workspace submission, field-error mapping,
 session refresh, conflict and lost-response recovery tests. Browser checks should
 cover signup, explicit email verification, sign-in, onboarding, reload, new tabs,
-failed and successful sign-out, and account switching. Deploy the Week 2 backend
-before deploying this frontend.
+failed and successful sign-out, and account switching. Deploy the matching backend release before deploying this frontend.
 
 The preview calculation module provides deterministic client-side estimates for
 the batch builder. A production integration must validate ownership and inputs,
@@ -164,7 +163,26 @@ decimal values. See `docs/frontend-contracts.md` for the replacement contracts.
 The `master` branch deploys to Netlify at
 [rtnweb.netlify.app](https://rtnweb.netlify.app/).
 
-Week 3 requires the backend material-foundation migration before deployment.
+v0.3 requires the backend material-foundation migration before deployment.
 Follow `rtn-backend/docs/week-3-migration-runbook.md`, deploy the backend first,
 then deploy this frontend. Run `npm run test:settings` for settings API contract,
 nullable-field clearing, tenant response checks and error-handling tests.
+
+## v0.4 — Persisted materials
+
+Material catalogue and forms use the live list/create/detail/update endpoints.
+The catalogue preserves search, category and stock filters alongside loading,
+empty, error and retry states. OWNER/ADMIN may edit; MEMBER can view saved material
+forms without mutation controls. Supplier is optional. Prices and quantities
+remain decimal strings through API requests/responses, with up to six decimal
+places and whole quantities for count units. No browser material persistence or
+sample material fallback remains.
+
+The dashboard material count and batch builder also read the live catalogue.
+Batch persistence and authoritative costing remain later milestones. Saves update
+the shared catalogue and notify other tabs. Failed requests retain form inputs;
+uncertain creation requests are not automatically retried.
+
+Run `npm run test:materials` for material API and decimal contract tests. Deploy
+backend before frontend and verify persisted create/edit/reload/new-tab journeys.
+No new v0.4 migration is required beyond the existing v0.3 material migration.
