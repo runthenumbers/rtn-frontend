@@ -44,8 +44,7 @@ Browser API requests use `/api/v1/...`; Next.js rewrites them to the backend
 `/v1/...` endpoints. `NEXT_PUBLIC_API_URL` remains a fallback for existing
 deployments. Local development defaults to `http://localhost:3001`.
 Missing configuration, invalid responses, timeouts and network errors display a
-retry screen. Authentication uses the NestJS API. Workspace/material/batch persistence still
-uses user-scoped preview adapters.
+retry screen. Authentication, workspace settings, materials and batches use the NestJS API.
 
 For Vercel, import this repository, use Node.js 24, and set `NEXT_PUBLIC_APP_URL`
 to the frontend production origin and `API_URL` to the backend origin.
@@ -61,7 +60,7 @@ unit groups, and compatible batch units. In browser developer tools, confirm bot
 `/api/v1/catalogues/` requests return 200 from the production backend. Block those
 requests and reload to check the error screen, then unblock and select Try again.
 A throttled connection should show the loading state. This verifies catalogue
-reads through the frontend, backend and production Neon; preview saves remain local.
+reads through the frontend, backend and production Neon.
 
 ## Quality commands
 
@@ -140,8 +139,7 @@ loads the saved profile from GET /api/v1/workspaces/:workspaceId and saves it wi
 PUT to the same endpoint. OWNER and ADMIN can edit; MEMBER sees disabled fields.
 Saved values update session context and other tabs. Failed saves retain the draft;
 base-currency conflicts explain why existing material prices prevent a change.
-Materials now use tenant-scoped backend persistence. Batch storage and dashboard
-aggregation remain previews; their storage is scoped to the authenticated user.
+Materials and batches use tenant-scoped backend persistence. The dashboard derives counts and current cost estimates from those persisted records.
 
 Set backend `FRONTEND_URL` to the exact frontend origin (`http://localhost:3000`
 for local development). Use `npm run dev` against a development backend; production
@@ -153,10 +151,7 @@ session refresh, conflict and lost-response recovery tests. Browser checks shoul
 cover signup, explicit email verification, sign-in, onboarding, reload, new tabs,
 failed and successful sign-out, and account switching. Deploy the matching backend release before deploying this frontend.
 
-The preview calculation module provides deterministic client-side estimates for
-the batch builder. A production integration must validate ownership and inputs,
-perform authoritative financial calculations on the server, and return saved
-decimal values. See `docs/frontend-contracts.md` for the replacement contracts.
+The calculation module provides advisory estimates from current material prices and saved fixed costs. Quantities and fixed costs persist on the server; historical price snapshots and authoritative final costing remain a separate milestone. See `docs/frontend-contracts.md`.
 
 ## Deployment
 
@@ -179,10 +174,38 @@ places and whole quantities for count units. No browser material persistence or
 sample material fallback remains.
 
 The dashboard material count and batch builder also read the live catalogue.
-Batch persistence and authoritative costing remain later milestones. Saves update
+Batches also persist; authoritative final costing remains a later milestone. Saves update
 the shared catalogue and notify other tabs. Failed requests retain form inputs;
 uncertain creation requests are not automatically retried.
 
 Run `npm run test:materials` for material API and decimal contract tests. Deploy
 backend before frontend and verify persisted create/edit/reload/new-tab journeys.
 No new v0.4 migration is required beyond the existing v0.3 material migration.
+
+## Week 6 — Live batch UI
+
+Batch catalogue, detail, builder and dashboard now read live tenant-scoped batches.
+The catalogue fetches all API pages before applying search/status filters. OWNER
+and ADMIN can create drafts with unique material lines and fixed costs. MEMBER
+can read batches and cannot open the builder. The detail screen shows saved
+quantities and fixed costs; estimated totals use current material prices, not
+historical snapshots. Missing prices show unavailable estimates rather than zero.
+Actual yield is explicitly unrecorded. All decimals remain strings through API I/O.
+
+Failed saves retain inputs and display nested server errors. Unfinished forms are
+stored in sessionStorage under the current user and workspace, restored on reload
+or after signing back in, and cleared after confirmed save or explicit cancellation.
+They are recovery copies, not saved batches. An uncertain POST is never retried
+automatically; Check saved batch looks up the existing workspace reference.
+
+```sh
+npm run test:batches
+npm run test:calculations
+```
+
+For the full local journey, responsive and axe accessibility suite, use the steps
+in [the Week 6 release guide](docs/week-6-live-batches.md). It requires a disposable
+local PostgreSQL database, backend dependencies/build, and Chromium or Chrome.
+No new migration is introduced in Week 6. The Week 5 batch migration must exist
+in every deployed backend database. Deployment instructions are prepared only;
+staging/production deployment and a hosted authenticated smoke test are not run.

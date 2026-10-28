@@ -31,6 +31,7 @@ const result = calculateBatchCost({
 });
 
 assert.deepEqual(result, {
+  fixedCostSubtotal: "0.00",
   costPerOutputUnit: "1.5813",
   lines: [
     { lineCost: "5.7750", materialId: "oil" },

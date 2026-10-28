@@ -1,21 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useState } from "react";
 
-import { EmptyState } from "@/components/ui/feedback";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/feedback";
 import {
   batchStatuses,
-  getMockBatches,
-  subscribeToMockBatches,
   type BatchStatus,
   type BatchViewModel,
-} from "@/lib/batches/mock-batches";
+} from "@/lib/batches/types";
+import { batchView } from "@/lib/batches/view-model";
+import { useBatches } from "./batches-provider";
+import { useMaterials } from "@/components/materials/materials-provider";
 import {
-  formatCurrencyDecimal,
-  formatUnitCostDecimal,
+  formatCurrencyDecimal as currencyDecimal,
+  formatUnitCostDecimal as unitDecimal,
 } from "@/lib/domain/currencies";
-import { useWorkspace } from "@/components/auth/auth-provider";
+import { useAuth, useWorkspace } from "@/components/auth/auth-provider";
 import { routes } from "@/lib/routes";
 
 const primaryActionClassName =
@@ -29,11 +30,13 @@ export function BatchesCatalogue() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const currency: string = workspace?.baseCurrency ?? "GBP";
-  const journey = "new" as const;
-  const batches = useSyncExternalStore(
-    subscribeToMockBatches,
-    () => getMockBatches(journey),
-    () => getMockBatches(journey),
+  const { user } = useAuth();
+  const canEdit = user?.workspaceContext?.membership.role !== "MEMBER";
+  const { items, status: loadStatus, retry } = useBatches();
+  const { items: materials, status: materialStatus } = useMaterials();
+  const batches = useMemo(
+    () => items.map((item) => batchView(item, materials)),
+    [items, materials],
   );
 
   const filteredBatches = useMemo(() => {
@@ -69,24 +72,49 @@ export function BatchesCatalogue() {
           </h1>
           <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">
             Find planned and completed production runs, then review their output
-            and recorded costs.
+            and estimated costs.
           </p>
         </div>
 
-        <Link className={primaryActionClassName} href={routes.newBatch}>
-          Create batch
-        </Link>
+        {canEdit ? (
+          <Link className={primaryActionClassName} href={routes.newBatch}>
+            Create batch
+          </Link>
+        ) : null}
       </div>
 
-      {batches.length === 0 ? (
+      <p className="mt-4 text-sm text-slate-600">
+        Costs are estimates using current material prices and saved fixed costs.
+      </p>
+      {materialStatus === "error" ? (
+        <p role="status" className="mt-3 text-sm text-amber-900">
+          Material prices are unavailable. Saved quantities and fixed costs
+          remain available.
+        </p>
+      ) : null}
+      {loadStatus === "loading" ? (
+        <LoadingState label="Loading batches" />
+      ) : loadStatus === "error" ? (
+        <ErrorState
+          title="Unable to load batches"
+          description="Your saved batches could not be loaded. Try again."
+          action={
+            <button className={primaryActionClassName} onClick={retry}>
+              Try again
+            </button>
+          }
+        />
+      ) : batches.length === 0 ? (
         <div className="mt-10">
           <EmptyState
             title="No batches yet"
             description="Create your first batch when you are ready to bring materials, packaging, output, and production costs together."
             action={
-              <Link className={primaryActionClassName} href={routes.newBatch}>
-                Create your first batch
-              </Link>
+              canEdit ? (
+                <Link className={primaryActionClassName} href={routes.newBatch}>
+                  Create your first batch
+                </Link>
+              ) : undefined
             }
           />
         </div>
@@ -198,10 +226,10 @@ function BatchesTable({
                 Output
               </th>
               <th className="px-5 py-3 text-right" scope="col">
-                Total cost
+                Estimated total
               </th>
               <th className="px-5 py-3 text-right" scope="col">
-                Cost per unit
+                Estimated unit cost
               </th>
             </tr>
           </thead>
@@ -300,14 +328,16 @@ function BatchesCards({
               </dd>
             </div>
             <div>
-              <dt className="text-xs font-medium text-slate-500">Total cost</dt>
+              <dt className="text-xs font-medium text-slate-500">
+                Estimated total
+              </dt>
               <dd className="mt-1 text-sm font-semibold text-slate-950 tabular-nums">
                 {formatCurrencyDecimal(batch.cost.total, currency)}
               </dd>
             </div>
             <div>
               <dt className="text-xs font-medium text-slate-500">
-                Cost per unit
+                Estimated unit cost
               </dt>
               <dd className="mt-1 text-sm font-semibold text-slate-950 tabular-nums">
                 {formatUnitCostDecimal(batch.cost.unit, currency)}
@@ -322,6 +352,7 @@ function BatchesCards({
 
 export function BatchStatusBadge({ status }: { status: BatchStatus }) {
   const colorClassName = {
+    Draft: "bg-slate-100 text-slate-800",
     Completed: "bg-emerald-100 text-emerald-900",
     "In production": "bg-blue-100 text-blue-900",
     Planned: "bg-amber-100 text-amber-900",
@@ -341,10 +372,18 @@ export function batchHref(batchId: string) {
 }
 
 export function formatDate(value: string) {
+  if (!value) return "Not scheduled";
   return new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
     month: "short",
     year: "numeric",
     timeZone: "UTC",
   }).format(new Date(`${value}T00:00:00Z`));
+}
+
+export function formatCurrencyDecimal(value: string | null, currency: string) {
+  return value === null ? "—" : currencyDecimal(value, currency);
+}
+export function formatUnitCostDecimal(value: string | null, currency: string) {
+  return value === null ? "—" : unitDecimal(value, currency);
 }

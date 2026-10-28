@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
 import {
   BatchStatusBadge,
@@ -8,14 +9,14 @@ import {
 } from "@/components/batches/batches-catalogue";
 import { ErrorState, LoadingState } from "@/components/ui/feedback";
 import { useAuth } from "@/components/auth/auth-provider";
-import {
-  getMockBatch,
-  type BatchLineViewModel,
-} from "@/lib/batches/mock-batches";
+import { getBatch, BatchError } from "@/lib/batches/api";
+import { batchView } from "@/lib/batches/view-model";
+import type { Batch, BatchLineViewModel } from "@/lib/batches/types";
+import { useMaterials } from "@/components/materials/materials-provider";
 import {
   formatCurrencyDecimal,
   formatUnitCostDecimal,
-} from "@/lib/domain/currencies";
+} from "./batches-catalogue";
 import { useWorkspace } from "@/components/auth/auth-provider";
 import { routes } from "@/lib/routes";
 
@@ -23,32 +24,68 @@ const secondaryActionClassName =
   "inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700";
 
 export function BatchDetail({ batchId }: { batchId: string }) {
-  const { user: session } = useAuth();
+  const { user: session, refresh } = useAuth();
   const workspace = useWorkspace();
-
-  if (!session) {
+  const {
+    items: materials,
+    status: materialStatus,
+    retry: retryMaterials,
+  } = useMaterials();
+  const [result, setResult] = useState<{
+    key: string;
+    batch?: Batch;
+    error?: unknown;
+  }>();
+  const [attempt, setAttempt] = useState(0);
+  const workspaceId = workspace?.id;
+  const key = `${workspaceId}:${batchId}`;
+  useEffect(() => {
+    if (!workspaceId) return;
+    const controller = new AbortController();
+    void getBatch(workspaceId, batchId, controller.signal)
+      .then((batch) => {
+        if (!controller.signal.aborted) setResult({ key, batch });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setResult({ key, error });
+        if (error instanceof BatchError && error.status === 401)
+          void refresh().catch(() => undefined);
+      });
+    return () => controller.abort();
+  }, [workspaceId, batchId, key, attempt, refresh]);
+  const current = result?.key === key ? result : undefined;
+  if (!session || !current)
     return <LoadingState label="Loading batch details" />;
-  }
-
-  const batch = getMockBatch(batchId, "new");
-
-  if (!batch) {
+  if (!current.batch)
     return (
-      <div className="mx-auto w-full max-w-3xl">
-        <ErrorState
-          title="Batch not found"
-          description="This batch may no longer be available, or the link may be incorrect. Return to the catalogue to choose another batch."
-          action={
+      <ErrorState
+        title={
+          current.error instanceof BatchError && current.error.status === 404
+            ? "Batch not found"
+            : "Unable to load batch"
+        }
+        description="The batch may be unavailable, or the request failed. Return to the catalogue or try again."
+        action={
+          <div className="flex flex-wrap gap-3">
             <Link className={secondaryActionClassName} href={routes.batches}>
               Back to batches
             </Link>
-          }
-        />
-      </div>
+            <button
+              className={secondaryActionClassName}
+              onClick={() => {
+                setResult(undefined);
+                setAttempt((value) => value + 1);
+              }}
+            >
+              Try again
+            </button>
+          </div>
+        }
+      />
     );
-  }
-
-  const currency: string = workspace?.baseCurrency ?? "GBP";
+  const batch = batchView(current.batch, materials);
+  const currency = current.batch.currencyCode;
 
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -94,8 +131,8 @@ export function BatchDetail({ batchId }: { batchId: string }) {
         </dl>
       </section>
 
-      <div className="mt-10 grid gap-8 xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start">
-        <section aria-labelledby="formulation-heading">
+      <div className="mt-10 grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start">
+        <section className="min-w-0" aria-labelledby="formulation-heading">
           <div>
             <h2
               className="text-xl font-semibold tracking-tight text-slate-950"
@@ -104,11 +141,30 @@ export function BatchDetail({ batchId }: { batchId: string }) {
               Formulation and materials
             </h2>
             <p className="mt-1 text-sm leading-6 text-slate-600">
-              Recorded quantities and line costs for this batch. This view is
-              read-only.
+              Saved quantities and estimated line costs for this batch. This
+              view is read-only.
             </p>
           </div>
 
+          {batch.lines.length === 0 ? (
+            <p className="mt-5 text-sm text-slate-600">
+              No formulation lines or fixed costs saved yet.
+            </p>
+          ) : null}
+          {materialStatus === "error" ? (
+            <p role="status" className="mt-4 text-sm text-amber-900">
+              Material prices could not be loaded.{" "}
+              <button className="min-h-11 underline" onClick={retryMaterials}>
+                Retry material prices
+              </button>
+            </p>
+          ) : null}
+          {batch.cost.total === null ? (
+            <p className="mt-4 text-sm text-slate-600" role="status">
+              Some current material prices or units are unavailable. Totals
+              cannot be estimated.
+            </p>
+          ) : null}
           <BatchLinesTable
             currency={currency}
             lines={batch.lines}
@@ -125,10 +181,10 @@ export function BatchDetail({ batchId }: { batchId: string }) {
             className="text-xl font-semibold tracking-tight text-slate-950"
             id="cost-summary-heading"
           >
-            Cost summary
+            Estimated cost summary
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Recorded values shown in {currency}.
+            Current estimates shown in {currency}.
           </p>
           <dl className="mt-5 divide-y divide-slate-200">
             <CostRow
@@ -159,8 +215,9 @@ export function BatchDetail({ batchId }: { batchId: string }) {
             </div>
           </dl>
           <p className="mt-5 border-t border-slate-200 pt-4 text-xs leading-5 text-slate-500">
-            Costs are stored batch values and are shown for review; this screen
-            does not recalculate them.
+            Estimates use current material prices and saved fixed costs.
+            Material price changes affect these estimates. Actual yield and
+            final production costs have not been recorded.
           </p>
         </aside>
       </div>

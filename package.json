@@ -18,7 +18,9 @@
     "test:auth": "node --experimental-strip-types --test src/lib/auth/api.test.ts",
     "test:onboarding": "node --experimental-strip-types --test src/lib/onboarding/api.test.ts",
     "test:settings": "node --experimental-strip-types --test src/lib/settings/api.test.ts",
-    "test:materials": "node --experimental-strip-types --test src/lib/materials/api.test.ts"
+    "test:materials": "node --experimental-strip-types --test src/lib/materials/api.test.ts",
+    "test:batches": "node --experimental-strip-types --test src/lib/batches/api.test.ts",
+    "test:batches:browser": "node scripts/check-live-batches.mjs"
   },
   "dependencies": {
     "axios": "^1.20.0",
@@ -27,6 +29,8 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

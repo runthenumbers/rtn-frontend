@@ -15,6 +15,7 @@ export interface BatchCalculationLineInput {
 
 export interface BatchCalculationInput {
   lines: readonly BatchCalculationLineInput[];
+  fixedCosts?: readonly { amount: string }[];
   targetOutputQuantity: string;
   targetOutputUnit: MaterialUnit;
 }
@@ -29,6 +30,7 @@ export interface BatchCalculationResult {
   lines: readonly BatchCalculationLineResult[];
   materialSubtotal: string;
   packagingSubtotal: string;
+  fixedCostSubtotal: string;
   targetOutputQuantity: string;
   targetOutputUnit: MaterialUnit;
   totalBatchCost: string;
@@ -90,10 +92,17 @@ export function calculateBatchCost(
     );
   });
 
-  const total = lineFractions.reduce(addFractions, {
-    numerator: 0n,
-    denominator: 1n,
-  });
+  const fixedTotal = (input.fixedCosts ?? []).reduce(
+    (sum, cost) => {
+      const value =
+        cost.amount === "0" || /^0\.0+$/.test(cost.amount)
+          ? { numerator: 0n, denominator: 1n }
+          : parsePositiveDecimal(cost.amount);
+      return addFractions(sum, value);
+    },
+    { numerator: 0n, denominator: 1n },
+  );
+  const total = lineFractions.reduce(addFractions, fixedTotal);
   const costPerOutput = divideFractions(total, output);
   const materialSubtotal = lineFractions.reduce(
     (subtotal, cost, index) =>
@@ -111,6 +120,7 @@ export function calculateBatchCost(
   );
 
   return {
+    fixedCostSubtotal: formatFraction(fixedTotal, MONEY_DECIMALS),
     costPerOutputUnit: formatFraction(costPerOutput, DETAIL_DECIMALS),
     lines: lineFractions.map((cost, index) => ({
       lineCost: formatFraction(cost, DETAIL_DECIMALS),

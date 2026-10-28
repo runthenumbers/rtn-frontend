@@ -1,8 +1,6 @@
 # Frontend integration contracts
 
-This document records live integration contracts and the remaining preview
-boundaries. Material APIs now persist business data. Batch and dashboard aggregation adapters
-remain previews.
+This document records the live authentication, workspace, material and batch contracts. Dashboard counts and cost estimates derive from persisted records.
 
 ## Authentication session
 
@@ -43,8 +41,7 @@ on the server. Session tokens are never stored in localStorage or sessionStorage
 Workspace gates and workspace display data use the server's workspace context.
 Missing or malformed context is an error rather than a preview fallback. The
 backend selects the earliest membership by creation time and ID, excluding
-archived workspaces. Workspace switching remains deferred. Material data is fetched per workspace. Batch preview collections remain scoped
-to the authenticated user.
+archived workspaces. Workspace switching remains deferred. Material and batch data are fetched per workspace. Batch form recovery copies are scoped to both the authenticated user and workspace.
 
 ### Authentication errors
 
@@ -118,89 +115,58 @@ Concurrent editors currently use last-write-wins semantics.
 The material schema and decimal-string contracts are now defined in
 `rtn-backend/docs/material-api-contract.md`. v0.4 implements material CRUD and removes the material preview adapter.
 
-## Dashboard view model
+## Dashboard and batch reads
 
-The production dashboard should expose one payload shaped like:
+`GET /v1/workspaces/:workspaceId/batches` returns `{ items: Batch[] }` with at
+most 100 records per request. The frontend fetches all pages (limit=100 and an
+offset) before applying catalogue search/status filters, so older saved batches
+are included. The dashboard uses this same collection for counts and recent
+batches. `GET /v1/workspaces/:workspaceId/batches/:batchId` loads detail independently
+of catalogue pagination. A 404 produces Batch not found; network/server errors
+produce retry UI. There is no sample-data fallback.
 
-```ts
-interface DashboardViewModel {
-  business: {
-    id: string;
-    name: string;
-    baseCurrency: CurrencyCode;
-  };
-  materialCount: number;
-  batchCount: number;
-  recordedBatchCosts: string;
-  recentBatches: Array<{
-    id: string;
-    name: string;
-    status: "Draft" | "Costed";
-    outputUnits: string;
-    totalCost: string;
-    costPerUnit: string;
-  }>;
-}
-```
+Records include id, workspaceId, name, reference, notes, nullable plannedDate,
+targetOutputQuantity, outputUnitCode, currencyCode, createdAt, updatedAt, lines
+and fixedCosts. Status codes DRAFT, PLANNED, IN_PRODUCTION and COMPLETED map to
+Draft, Planned, In production and Completed. Nested lines include materialId,
+quantity and unitCode; fixed costs include name and amount. All decimals use
+strings and up to six decimal places. The adapter validates response ownership,
+child batch IDs, dates, supported units and decimal shapes before displaying data.
 
-Authoritative decimal values should arrive as strings. Formatting belongs to
-the presentation layer; financial arithmetic does not. The preview dashboard is
-currently derived from the live material list and preview batch collection so
-material counts agree with the persisted catalogue.
+## Batch creation and estimates
 
-An empty `recentBatches` array produces the first-time state. A populated array
-produces the recent-batches table. Counts must be scoped to the active business.
+`POST /v1/workspaces/:workspaceId/batches` creates a DRAFT. Requests contain name,
+reference, notes, nullable plannedDate, targetOutputQuantity, outputUnitCode,
+lines (`materialId`, `quantity`, `unitCode`) and fixedCosts (`name`, `amount`).
+The frontend whitelists these fields and never submits client-computed costs,
+status, user, currency or workspace ownership. The backend supplies ownership
+and currency, rechecks permissions in the write transaction, validates materials
+and compatible units, and atomically persists both child collections.
 
-## Batch catalogue and detail view models
+The builder requires at least one material and a planned date. Decimal fields
+support up to 14 integer digits and 6 fractional digits; quantities are positive,
+COUNT quantities are whole, and fixed costs can be zero. Name/reference limits
+are 160/80 characters, notes 5000, line count 500 and fixed-cost count 100.
+OWNER/ADMIN can save and MEMBER can read. All writes require trusted Origin and
+cookie authentication. Reference uniqueness is case sensitive per workspace.
 
-The batches catalogue expects records scoped to the active business, with a
-stable identifier, human-readable reference, status, planned or completed date,
-output description, yield, total cost, and cost per unit. Search and status
-filtering are currently presentation concerns and can move to query parameters
-when the backend supports them.
+Current cost estimates use exact integer fractions for compatible unit conversion,
+material costs, fixed-cost summation and division. Totals are rounded half-up to
+2 decimal places once after summation; individual material line costs and unit
+costs use 4 places. Fixed-cost inputs persist with six-place precision. These
+estimates are advisory: the API stores quantities and fixed costs, without
+material-price snapshots, authoritative totals, actual output or yield. Reopening
+a batch uses current material prices. Missing/incompatible material prices leave
+estimates unavailable while retaining saved quantities and fixed costs on screen.
 
-The batch detail payload also supplies read-only formulation, packaging, and
-production-cost lines plus an explicit cost summary. In production, all
-monetary values must arrive as authoritative decimal strings. The detail view
-formats those saved values in the active workspace currency but does not derive
-line totals, category subtotals, batch totals, yields, or unit costs.
-
-An empty catalogue produces the first-time state. An unknown identifier produces
-the batch-not-found state without exposing storage or ownership details.
-
-## Batch creation and calculation boundary
-
-The batch builder submits identity, a planned date, target output, and one or
-more unique material lines. Each line references a material identifier and
-supplies a positive decimal quantity plus a unit from the same measurement
-dimension as that material's purchase unit. Count quantities are whole numbers.
-Material ownership, current prices, unit compatibility, reference uniqueness,
-and all values must be validated again by the production API.
-
-The mock calculation adapter accepts decimal strings and uses exact rational
-arithmetic backed by integers. It never uses display-formatted currency or
-ordinary binary floating-point as an authoritative input. Unit conversion uses
-the central catalogue's integer base-unit factors (grams, millilitres, and
-items). Its precision policy is:
-
-- purchase prices, pack quantities, formulation quantities, and target output
-  are parsed from unformatted decimal strings;
-- exact values are retained throughout conversion, multiplication, summation,
-  and division;
-- currency subtotals and the batch total use round-half-up to 2 decimal places;
-- individual line costs and cost per output unit use round-half-up to 4 decimal
-  places, while currency UI may retain at least 2 trailing decimal places;
-- count-based quantities (`item`) must be whole numbers; mass and volume may be
-  fractional;
-- the authoritative total is rounded once from the exact sum, rather than
-  summing independently rounded display lines.
-
-Mock submission persists the returned calculation strings with the batch. The
-catalogue and detail views format those saved results and do not calculate a
-competing total. A future production endpoint must resolve material prices and
-perform this calculation server-side in an atomic create operation. Its response
-should return the complete saved batch view model and authoritative decimal
-strings; browser-side live feedback is advisory only.
+Validation errors map to batch fields and indexed line/fixed-cost inputs. A 401
+refreshes the session and returns to sign-in; an unfinished recovery copy in
+sessionStorage is keyed by user and workspace and restored when the same user
+returns to the builder. No session token is stored there. Failed requests retain
+the form; successful saves and explicit Cancel remove the recovery copy. A failed
+or timed-out POST is not automatically retried. Check saved batch queries existing
+batches by the same reference so a lost response can be recovered without creating
+a duplicate. A reference conflict also allows reviewing the existing saved batch.
 
 ## Error response
 

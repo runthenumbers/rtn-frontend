@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/feedback";
-import { formatCurrency } from "@/lib/dashboard/mock-dashboard";
+import { formatCurrencyDecimal as formatCurrency } from "@/lib/domain/currencies";
 import { formatMaterialQuantity } from "@/lib/domain/material-units";
 import {
   materialCategories,

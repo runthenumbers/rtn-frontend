@@ -1,23 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useSyncExternalStore } from "react";
+import { useMemo } from "react";
 
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/feedback";
 import {
   batchHref,
   BatchStatusBadge,
 } from "@/components/batches/batches-catalogue";
+import { useBatches } from "@/components/batches/batches-provider";
+import { batchView } from "@/lib/batches/view-model";
 import {
-  formatCurrency,
-  getMockDashboard,
-} from "@/lib/dashboard/mock-dashboard";
-import {
-  getMockBatches,
-  subscribeToMockBatches,
-} from "@/lib/batches/mock-batches";
+  formatCurrencyDecimal,
+  formatUnitCostDecimal,
+} from "@/components/batches/batches-catalogue";
 import { useMaterials } from "@/components/materials/materials-provider";
-import { useWorkspace } from "@/components/auth/auth-provider";
+import { useAuth, useWorkspace } from "@/components/auth/auth-provider";
 import { routes } from "@/lib/routes";
 
 const primaryActionClassName =
@@ -29,18 +27,33 @@ const secondaryActionClassName =
 export function DashboardOverview() {
   const workspace = useWorkspace();
   const currency: string = workspace?.baseCurrency ?? "GBP";
-  const journey = "new" as const;
+  const { user } = useAuth();
+  const canEdit = user?.workspaceContext?.membership.role !== "MEMBER";
   const { items: materials, status: materialStatus, retry } = useMaterials();
-  const batches = useSyncExternalStore(
-    subscribeToMockBatches,
-    () => getMockBatches(journey),
-    () => getMockBatches(journey),
+  const { items, status: batchStatus, retry: retryBatches } = useBatches();
+  const batches = useMemo(
+    () => items.map((item) => batchView(item, materials)),
+    [items, materials],
   );
-  const dashboard = getMockDashboard(materials, batches);
+  const total = batches.some((batch) => batch.cost.total === null)
+    ? null
+    : batches.reduce(
+        (sum, batch) => sum + BigInt(batch.cost.total!.replace(".", "")),
+        0n,
+      );
+  const totalText =
+    total === null
+      ? null
+      : `${total / 100n}.${(total % 100n).toString().padStart(2, "0")}`;
+  const dashboard = {
+    materialCount: materials.length,
+    batchCount: batches.length,
+    recentBatches: batches.slice(0, 3),
+  };
   const hasBatches = dashboard.recentBatches.length > 0;
 
-  if (materialStatus === "loading")
-    return <LoadingState label="Loading dashboard materials" />;
+  if (materialStatus === "loading" || batchStatus === "loading")
+    return <LoadingState label="Loading dashboard" />;
   if (materialStatus === "error")
     return (
       <ErrorState
@@ -48,6 +61,18 @@ export function DashboardOverview() {
         description="The dashboard could not load your materials."
         action={
           <button className={secondaryActionClassName} onClick={retry}>
+            Try again
+          </button>
+        }
+      />
+    );
+  if (batchStatus === "error")
+    return (
+      <ErrorState
+        title="Unable to load batches"
+        description="The dashboard could not load your saved batches."
+        action={
+          <button className={secondaryActionClassName} onClick={retryBatches}>
             Try again
           </button>
         }
@@ -70,14 +95,19 @@ export function DashboardOverview() {
           </p>
         </div>
 
-        <div className="flex shrink-0 flex-col gap-3 sm:flex-row">
-          <Link className={secondaryActionClassName} href={routes.newMaterial}>
-            Create material
-          </Link>
-          <Link className={primaryActionClassName} href={routes.newBatch}>
-            Create batch
-          </Link>
-        </div>
+        {canEdit ? (
+          <div className="flex shrink-0 flex-col gap-3 sm:flex-row">
+            <Link
+              className={secondaryActionClassName}
+              href={routes.newMaterial}
+            >
+              Create material
+            </Link>
+            <Link className={primaryActionClassName} href={routes.newBatch}>
+              Create batch
+            </Link>
+          </div>
+        ) : null}
       </div>
 
       <section className="mt-10" aria-labelledby="workspace-summary-heading">
@@ -92,8 +122,8 @@ export function DashboardOverview() {
           <SummaryCard label="Batches" value={String(dashboard.batchCount)} />
           <SummaryCard label="Base currency" value={currency} />
           <SummaryCard
-            label="Recorded batch costs"
-            value={formatCurrency(dashboard.recordedBatchCosts, currency)}
+            label="Estimated batch costs"
+            value={formatCurrencyDecimal(totalText, currency)}
           />
         </dl>
       </section>
@@ -108,7 +138,7 @@ export function DashboardOverview() {
           </h2>
           <p className="mt-1 text-sm text-slate-600">
             {hasBatches
-              ? "Review the latest costed and draft production work."
+              ? "Review saved production work. Estimates use current material prices."
               : "Your latest production work will appear here."}
           </p>
         </div>
@@ -157,10 +187,10 @@ export function DashboardOverview() {
                         {batch.output}
                       </td>
                       <td className="px-5 py-4 text-right text-sm font-medium text-slate-900">
-                        {formatCurrency(batch.totalCost, currency)}
+                        {formatCurrencyDecimal(batch.cost.total, currency)}
                       </td>
                       <td className="px-5 py-4 text-right text-sm font-medium text-slate-900">
-                        {formatCurrency(batch.costPerUnit, currency)}
+                        {formatUnitCostDecimal(batch.cost.unit, currency)}
                       </td>
                     </tr>
                   ))}
@@ -173,9 +203,11 @@ export function DashboardOverview() {
             title="No batches yet"
             description="Create your first batch when you are ready to bring priced materials and target output together."
             action={
-              <Link className={primaryActionClassName} href={routes.newBatch}>
-                Create your first batch
-              </Link>
+              canEdit ? (
+                <Link className={primaryActionClassName} href={routes.newBatch}>
+                  Create your first batch
+                </Link>
+              ) : undefined
             }
           />
         )}
