@@ -1,6 +1,12 @@
 import { isMaterialUnit } from "../domain/material-units.ts";
 import { validDecimal } from "../materials/types.ts";
-import type { Batch, BatchInput, BatchStatus } from "./types.ts";
+import type {
+  Batch,
+  BatchInput,
+  BatchStatus,
+  BatchCalculation,
+  BatchCalculationInput,
+} from "./types.ts";
 export class BatchError extends Error {
   readonly status: number;
   readonly fieldErrors: Record<string, string[]>;
@@ -25,6 +31,54 @@ function decimal(value: unknown, positive = false): value is string {
 }
 function text(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
+}
+export function parseCalculation(
+  value: unknown,
+  materialIds: readonly string[],
+): BatchCalculation {
+  if (!record(value)) throw new BatchError(502);
+  if (value.status === "unavailable" && text(value.code) && text(value.message))
+    return { status: "unavailable", code: value.code, message: value.message };
+  if (
+    value.status !== "available" ||
+    !text(value.adapterVersion) ||
+    !record(value.engine) ||
+    value.engine.success !== true ||
+    !text(value.engine.calculationEngineVersion) ||
+    !text(value.engine.roundingPolicyVersion) ||
+    !text(value.engine.currencyPolicyVersion) ||
+    !Array.isArray(value.engine.warnings) ||
+    !value.engine.warnings.every(
+      (warning: unknown) =>
+        record(warning) && text(warning.code) && text(warning.message),
+    ) ||
+    !Array.isArray(value.lines) ||
+    value.lines.length !== materialIds.length ||
+    !value.lines.every(
+      (line: unknown, index: number) =>
+        record(line) &&
+        line.materialId === materialIds[index] &&
+        text(line.name) &&
+        ["INGREDIENT", "PACKAGING", "CONSUMABLE"].includes(
+          String(line.category),
+        ) &&
+        typeof line.lineCost === "string" &&
+        /^\d{1,100}\.\d{2}$/.test(line.lineCost),
+    ) ||
+    ![
+      "materialSubtotal",
+      "packagingSubtotal",
+      "fixedCostSubtotal",
+      "totalBatchCost",
+    ].every(
+      (key) =>
+        typeof value[key] === "string" && /^\d{1,100}\.\d{2}$/.test(value[key]),
+    ) ||
+    typeof value.costPerOutputUnit !== "string" ||
+    !/^\d{1,100}\.\d{6}$/.test(value.costPerOutputUnit)
+  )
+    throw new BatchError(502);
+  return value as unknown as BatchCalculation;
 }
 export function parseBatch(value: unknown, workspaceId: string): Batch {
   if (
@@ -91,6 +145,10 @@ export function parseBatch(value: unknown, workspaceId: string): Batch {
     return { id: cost.id, name: cost.name, amount: cost.amount };
   });
   return {
+    calculation: parseCalculation(
+      value.calculation,
+      lines.map((line) => line.materialId),
+    ),
     id,
     workspaceId,
     name: value.name,
@@ -219,4 +277,25 @@ export async function saveBatch(
   );
   if (id && batch.id !== id) throw new BatchError(502);
   return batch;
+}
+
+export async function previewBatch(
+  workspaceId: string,
+  input: BatchCalculationInput,
+  signal?: AbortSignal,
+): Promise<BatchCalculation> {
+  const body: BatchCalculationInput = {
+    targetOutputQuantity: input.targetOutputQuantity,
+    outputUnitCode: input.outputUnitCode,
+    lines: input.lines.map(({ materialId, quantity, unitCode }) => ({
+      materialId,
+      quantity,
+      unitCode,
+    })),
+    fixedCosts: input.fixedCosts.map(({ name, amount }) => ({ name, amount })),
+  };
+  return parseCalculation(
+    await request(workspaceId, "/preview", "POST", body, signal),
+    body.lines.map((line) => line.materialId),
+  );
 }

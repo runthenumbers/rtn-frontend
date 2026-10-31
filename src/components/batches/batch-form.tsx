@@ -15,9 +15,16 @@ import {
   TextField,
 } from "@/components/ui/form-controls";
 import { useAuth } from "@/components/auth/auth-provider";
-import { calculateBatchCost } from "@/lib/batches/batch-calculations";
-import { saveBatch, listBatches, BatchError } from "@/lib/batches/api";
-import type { BatchLineCategory } from "@/lib/batches/types";
+import {
+  saveBatch,
+  listBatches,
+  BatchError,
+  previewBatch,
+} from "@/lib/batches/api";
+import type {
+  BatchCalculation,
+  BatchCalculationInput,
+} from "@/lib/batches/types";
 import { draftKey, parseDraft } from "@/lib/batches/draft";
 import { validDecimal } from "@/lib/materials/types";
 import { useBatches } from "./batches-provider";
@@ -266,52 +273,79 @@ function BatchFormFields({
     return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
   }, [isDirty]);
 
-  const calculation = useMemo(() => {
+  const previewInput = useMemo<BatchCalculationInput | undefined>(() => {
     if (
-      !outputQuantity ||
+      !validDecimal(outputQuantity, true) ||
       !isMaterialUnit(outputUnit) ||
-      !availableUnits.has(outputUnit) ||
       lines.some(
         (line) =>
           !line.materialId ||
-          !line.quantity ||
-          !isMaterialUnit(line.unit) ||
-          !availableUnits.has(line.unit),
-      )
-    ) {
+          !validDecimal(line.quantity, true) ||
+          !isMaterialUnit(line.unit),
+      ) ||
+      fixedCosts.some((cost) => !cost.name.trim() || !validDecimal(cost.amount))
+    )
       return undefined;
-    }
-    try {
-      return calculateBatchCost({
-        fixedCosts,
-        lines: lines.map((line) => {
-          const material = materials.find(
-            (item) => item.id === line.materialId,
-          )!;
-          return {
-            category: lineCategory(material),
-            materialId: material.id,
-            packQuantity: String(material.packQuantity),
-            purchasePrice: String(material.purchasePrice),
-            purchaseUnit: material.unit,
-            quantity: line.quantity,
-            quantityUnit: line.unit as MaterialUnit,
-          };
-        }),
-        targetOutputQuantity: outputQuantity,
-        targetOutputUnit: outputUnit,
-      });
-    } catch {
-      return undefined;
-    }
-  }, [
-    lines,
-    materials,
-    outputQuantity,
-    outputUnit,
-    availableUnits,
-    fixedCosts,
-  ]);
+    return {
+      targetOutputQuantity: outputQuantity,
+      outputUnitCode: outputUnit,
+      lines: lines.map((line) => ({
+        materialId: line.materialId,
+        quantity: line.quantity,
+        unitCode: line.unit as MaterialUnit,
+      })),
+      fixedCosts: fixedCosts.map((cost) => ({
+        name: cost.name.trim(),
+        amount: cost.amount,
+      })),
+    };
+  }, [outputQuantity, outputUnit, lines, fixedCosts]);
+  const previewKey = JSON.stringify([workspaceId, previewInput]);
+  const [preview, setPreview] = useState<{
+    key: string;
+    result?: BatchCalculation;
+    error?: string;
+  }>();
+  const [previewAttempt, setPreviewAttempt] = useState(0);
+  useEffect(() => {
+    if (!previewInput) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void previewBatch(workspaceId, previewInput, controller.signal)
+        .then((result) => {
+          if (!controller.signal.aborted)
+            setPreview({ key: previewKey, result });
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted)
+            setPreview({
+              key: previewKey,
+              error:
+                error instanceof BatchError && error.status === 401
+                  ? "Your session expired. Sign in again to calculate costs. Your draft is preserved."
+                  : "Unable to calculate costs. You can still save this draft.",
+            });
+        });
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [workspaceId, previewInput, previewKey, previewAttempt]);
+  const currentPreview = preview?.key === previewKey ? preview : undefined;
+  const calculation =
+    currentPreview?.result?.status === "available"
+      ? currentPreview.result
+      : undefined;
+  const previewMessage =
+    currentPreview?.error ??
+    (currentPreview?.result?.status === "unavailable"
+      ? currentPreview.result.message
+      : previewInput && !calculation
+        ? "Calculating current costs…"
+        : !previewInput
+          ? "Enter valid formulation inputs to calculate costs. Drafts can be saved without a calculation."
+          : "");
 
   function markChanged() {
     setIsDirty(true);
@@ -336,7 +370,6 @@ function BatchFormFields({
   }
 
   function removeLine(id: string) {
-    if (lines.length === 1) return;
     const lineNumber = lines.findIndex((line) => line.id === id) + 1;
     if (window.confirm(`Remove formulation line ${lineNumber}?`)) {
       setLines((current) => current.filter((line) => line.id !== id));
@@ -412,16 +445,16 @@ function BatchFormFields({
       nextErrors.lines = "Review the highlighted formulation lines.";
     setErrors(nextErrors);
     setLineErrors(nextLineErrors);
-    return Object.keys(nextErrors).length === 0 && calculation;
+    return Object.keys(nextErrors).length === 0;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submittingRef.current || !canEdit) return;
     setFormError(undefined);
-    const validCalculation = validate();
+    const validInput = validate();
     if (
-      !validCalculation ||
+      !validInput ||
       !isMaterialUnit(outputUnit) ||
       !availableUnits.has(outputUnit)
     ) {
@@ -594,8 +627,8 @@ function BatchFormFields({
       {materials.length === 0 ? (
         <div className="mt-8">
           <EmptyState
-            title="Add materials before building a batch"
-            description="A batch needs at least one priced material. Add its purchase price, pack quantity, and unit first, then return here to build the formulation."
+            title="Add materials to calculate costs"
+            description="Add a priced material to build a formulation, or remove the empty line below to save an empty draft."
             action={
               <Link
                 className={secondaryActionClassName}
@@ -606,507 +639,514 @@ function BatchFormFields({
             }
           />
         </div>
-      ) : (
-        <form
-          className="mt-8 grid gap-8 xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start"
-          noValidate
-          onSubmit={handleSubmit}
-          ref={formRef}
-        >
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            {formError ? (
-              <div className="p-5 pb-0 sm:p-7 sm:pb-0">
-                <FormError>{formError}</FormError>
-                {uncertain ? (
-                  <button
-                    className={secondaryActionClassName}
-                    disabled={isSubmitting}
-                    type="button"
-                    onClick={() => void checkSavedBatch()}
-                  >
-                    Check saved batch
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-            <fieldset
-              disabled={isSubmitting || !canEdit || !recoveryReady}
-              className="min-w-0"
-            >
-              <section
-                className="p-5 sm:p-7"
-                aria-labelledby="batch-details-heading"
-              >
-                <h2
-                  className="text-xl font-semibold text-slate-950"
-                  id="batch-details-heading"
+      ) : null}
+      <form
+        className="mt-8 grid gap-8 xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start"
+        noValidate
+        onSubmit={handleSubmit}
+        ref={formRef}
+      >
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          {formError ? (
+            <div className="p-5 pb-0 sm:p-7 sm:pb-0">
+              <FormError>{formError}</FormError>
+              {uncertain ? (
+                <button
+                  className={secondaryActionClassName}
+                  disabled={isSubmitting}
+                  type="button"
+                  onClick={() => void checkSavedBatch()}
                 >
-                  Batch details
-                </h2>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Use a recognisable name and unique internal reference for this
-                  planned run.
-                </p>
-                <div className="mt-6 grid gap-6 sm:grid-cols-2">
+                  Check saved batch
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          <fieldset
+            disabled={isSubmitting || !canEdit || !recoveryReady}
+            className="min-w-0"
+          >
+            <section
+              className="p-5 sm:p-7"
+              aria-labelledby="batch-details-heading"
+            >
+              <h2
+                className="text-xl font-semibold text-slate-950"
+                id="batch-details-heading"
+              >
+                Batch details
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Use a recognisable name and unique internal reference for this
+                planned run.
+              </p>
+              <div className="mt-6 grid gap-6 sm:grid-cols-2">
+                <TextField
+                  error={errors.name}
+                  inputRef={nameRef}
+                  label="Batch name"
+                  name="name"
+                  placeholder="e.g. Autumn hand lotion"
+                  required
+                  maxLength={160}
+                  value={name}
+                  onChange={(event) => {
+                    setName(event.target.value);
+                    markChanged();
+                    setErrors((current) => ({ ...current, name: undefined }));
+                  }}
+                />
+                <TextField
+                  error={errors.reference}
+                  label="Batch reference"
+                  name="reference"
+                  placeholder="e.g. HL-2026-008"
+                  required
+                  maxLength={80}
+                  value={reference}
+                  onChange={(event) => {
+                    setReference(event.target.value);
+                    markChanged();
+                    setErrors((current) => ({
+                      ...current,
+                      reference: undefined,
+                    }));
+                  }}
+                />
+                <TextField
+                  error={errors.date}
+                  label="Planned date"
+                  name="date"
+                  required
+                  type="date"
+                  value={date}
+                  onChange={(event) => {
+                    setDate(event.target.value);
+                    markChanged();
+                    setErrors((current) => ({ ...current, date: undefined }));
+                  }}
+                />
+                <div className="grid grid-cols-[minmax(0,1fr)_8rem] gap-3">
                   <TextField
-                    error={errors.name}
-                    inputRef={nameRef}
-                    label="Batch name"
-                    name="name"
-                    placeholder="e.g. Autumn hand lotion"
+                    error={errors.outputQuantity}
+                    inputMode="decimal"
+                    label="Target output"
+                    min="0"
+                    name="outputQuantity"
                     required
-                    maxLength={160}
-                    value={name}
+                    step="any"
+                    type="text"
+                    value={outputQuantity}
                     onChange={(event) => {
-                      setName(event.target.value);
-                      markChanged();
-                      setErrors((current) => ({ ...current, name: undefined }));
-                    }}
-                  />
-                  <TextField
-                    error={errors.reference}
-                    label="Batch reference"
-                    name="reference"
-                    placeholder="e.g. HL-2026-008"
-                    required
-                    maxLength={80}
-                    value={reference}
-                    onChange={(event) => {
-                      setReference(event.target.value);
+                      setOutputQuantity(event.target.value);
                       markChanged();
                       setErrors((current) => ({
                         ...current,
-                        reference: undefined,
+                        outputQuantity: undefined,
                       }));
                     }}
                   />
-                  <TextField
-                    error={errors.date}
-                    label="Planned date"
-                    name="date"
+                  <SelectField
+                    error={errors.outputUnit}
+                    label="Unit"
+                    name="outputUnit"
                     required
-                    type="date"
-                    value={date}
+                    value={outputUnit}
                     onChange={(event) => {
-                      setDate(event.target.value);
+                      setOutputUnit(event.target.value);
                       markChanged();
-                      setErrors((current) => ({ ...current, date: undefined }));
+                      setErrors((current) => ({
+                        ...current,
+                        outputUnit: undefined,
+                      }));
+                    }}
+                  >
+                    <option value="">Select</option>
+                    {units
+                      .filter((unit) => availableUnits.has(unit.code))
+                      .map((unit) => (
+                        <option key={unit.code} value={unit.code}>
+                          {unit.abbreviation}
+                        </option>
+                      ))}
+                  </SelectField>
+                </div>
+                <div className="sm:col-span-2">
+                  <TextareaField
+                    description="Optional context for production or quality review."
+                    label="Notes (optional)"
+                    name="notes"
+                    maxLength={5000}
+                    error={errors.notes}
+                    value={notes}
+                    onChange={(event) => {
+                      setNotes(event.target.value);
+                      markChanged();
                     }}
                   />
-                  <div className="grid grid-cols-[minmax(0,1fr)_8rem] gap-3">
-                    <TextField
-                      error={errors.outputQuantity}
-                      inputMode="decimal"
-                      label="Target output"
-                      min="0"
-                      name="outputQuantity"
-                      required
-                      step="any"
-                      type="text"
-                      value={outputQuantity}
-                      onChange={(event) => {
-                        setOutputQuantity(event.target.value);
-                        markChanged();
-                        setErrors((current) => ({
-                          ...current,
-                          outputQuantity: undefined,
-                        }));
-                      }}
-                    />
-                    <SelectField
-                      error={errors.outputUnit}
-                      label="Unit"
-                      name="outputUnit"
-                      required
-                      value={outputUnit}
-                      onChange={(event) => {
-                        setOutputUnit(event.target.value);
-                        markChanged();
-                        setErrors((current) => ({
-                          ...current,
-                          outputUnit: undefined,
-                        }));
-                      }}
-                    >
-                      <option value="">Select</option>
-                      {units
-                        .filter((unit) => availableUnits.has(unit.code))
-                        .map((unit) => (
-                          <option key={unit.code} value={unit.code}>
-                            {unit.abbreviation}
-                          </option>
-                        ))}
-                    </SelectField>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <TextareaField
-                      description="Optional context for production or quality review."
-                      label="Notes (optional)"
-                      name="notes"
-                      maxLength={5000}
-                      error={errors.notes}
-                      value={notes}
-                      onChange={(event) => {
-                        setNotes(event.target.value);
-                        markChanged();
-                      }}
-                    />
-                  </div>
                 </div>
-              </section>
+              </div>
+            </section>
 
-              <section
-                className="border-t border-slate-200 p-5 sm:p-7"
-                aria-labelledby="formulation-builder-heading"
-              >
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <h2
-                      className="text-xl font-semibold text-slate-950"
-                      id="formulation-builder-heading"
-                    >
-                      Formulation
-                    </h2>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      Add each material once. Units are limited to the
-                      material’s measurement type.
-                    </p>
-                  </div>
-                  <button
-                    className={secondaryActionClassName}
-                    disabled={lines.length >= 500}
-                    onClick={addLine}
-                    type="button"
+            <section
+              className="border-t border-slate-200 p-5 sm:p-7"
+              aria-labelledby="formulation-builder-heading"
+            >
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2
+                    className="text-xl font-semibold text-slate-950"
+                    id="formulation-builder-heading"
                   >
-                    Add line
-                  </button>
-                </div>
-                {errors.lines ? (
-                  <p className="mt-4 text-sm text-red-700" role="alert">
-                    {errors.lines}
+                    Formulation
+                  </h2>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Add each material once. Units are limited to the material’s
+                    measurement type.
                   </p>
-                ) : null}
-                <div className="mt-6 grid gap-4">
-                  {lines.map((line, index) => {
-                    const material = materials.find(
-                      (item) => item.id === line.materialId,
-                    );
-                    const lineResult = calculation?.lines[index];
-                    return (
-                      <fieldset
-                        className="rounded-lg border border-slate-200 bg-slate-50 p-4"
-                        key={line.id}
-                      >
-                        <legend className="px-1 text-sm font-semibold text-slate-900">
-                          Line {index + 1}
-                        </legend>
-                        <div className="grid gap-4 md:grid-cols-[minmax(12rem,1fr)_minmax(8rem,.55fr)_8rem_auto] md:items-start">
-                          <SelectField
-                            error={lineErrors[line.id]?.material}
-                            label="Material"
-                            name={`${line.id}-material`}
-                            required
-                            value={line.materialId}
-                            onChange={(event) => {
-                              const selected = materials.find(
-                                (item) => item.id === event.target.value,
-                              );
-                              updateLine(line.id, {
-                                materialId: event.target.value,
-                                unit:
-                                  selected && availableUnits.has(selected.unit)
-                                    ? selected.unit
-                                    : "",
-                              });
-                            }}
-                          >
-                            <option value="">Select a material</option>
-                            {materials.map((option) => (
-                              <option
-                                disabled={lines.some(
-                                  (other) =>
-                                    other.id !== line.id &&
-                                    other.materialId === option.id,
-                                )}
-                                key={option.id}
-                                value={option.id}
-                              >
-                                {option.name}
-                              </option>
-                            ))}
-                          </SelectField>
-                          <TextField
-                            error={lineErrors[line.id]?.quantity}
-                            inputMode="decimal"
-                            label="Required quantity"
-                            min="0"
-                            name={`${line.id}-quantity`}
-                            required
-                            step="any"
-                            type="text"
-                            value={line.quantity}
-                            onChange={(event) =>
-                              updateLine(line.id, {
-                                quantity: event.target.value,
-                              })
-                            }
-                          />
-                          <SelectField
-                            error={lineErrors[line.id]?.unit}
-                            label="Unit"
-                            name={`${line.id}-unit`}
-                            required
-                            value={line.unit}
-                            onChange={(event) =>
-                              updateLine(line.id, { unit: event.target.value })
-                            }
-                          >
-                            <option value="">Select</option>
-                            {(material
-                              ? getCompatibleUnits(material.unit)
-                              : []
-                            ).map((unit) => (
-                              <option key={unit.code} value={unit.code}>
-                                {unit.abbreviation}
-                              </option>
-                            ))}
-                          </SelectField>
-                          <button
-                            aria-label={`Remove formulation line ${index + 1}`}
-                            className="mt-7 inline-flex min-h-11 items-center justify-center rounded-lg border border-red-200 bg-white px-4 text-sm font-semibold text-red-800 transition hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                            disabled={lines.length === 1}
-                            onClick={() => removeLine(line.id)}
-                            type="button"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                        <div className="mt-3 flex flex-col gap-1 border-t border-slate-200 pt-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-                          <p className="text-slate-600">
-                            {material
-                              ? `${formatCurrencyDecimal(String(material.purchasePrice), currency)} per ${formatMaterialQuantity(material.packQuantity, material.unit)}`
-                              : "Select a material to see its purchase basis."}
-                          </p>
-                          <p className="font-semibold text-slate-950 tabular-nums">
-                            Line cost:{" "}
-                            {lineResult
-                              ? formatUnitCostDecimal(
-                                  lineResult.lineCost,
-                                  currency,
-                                )
-                              : "—"}
-                          </p>
-                        </div>
-                      </fieldset>
-                    );
-                  })}
                 </div>
-              </section>
-              <section
-                className="border-t border-slate-200 p-5 sm:p-7"
-                aria-labelledby="fixed-costs-heading"
-              >
-                <h2
-                  className="text-xl font-semibold text-slate-950"
-                  id="fixed-costs-heading"
+                <button
+                  className={secondaryActionClassName}
+                  disabled={lines.length >= 500}
+                  onClick={addLine}
+                  type="button"
                 >
-                  Fixed costs
-                </h2>
-                <p className="mt-2 text-sm text-slate-600">
-                  Add labour, utilities or other production costs in {currency}.
+                  Add line
+                </button>
+              </div>
+              {errors.lines ? (
+                <p className="mt-4 text-sm text-red-700" role="alert">
+                  {errors.lines}
                 </p>
-                {errors.fixedCosts ? (
-                  <p role="alert" className="mt-3 text-sm text-red-700">
-                    {errors.fixedCosts}
-                  </p>
-                ) : null}
-                <div className="mt-4 grid gap-4">
-                  {fixedCosts.map((cost, index) => (
+              ) : null}
+              <div className="mt-6 grid gap-4">
+                {lines.map((line, index) => {
+                  const material = materials.find(
+                    (item) => item.id === line.materialId,
+                  );
+                  const lineResult = calculation?.lines[index];
+                  return (
                     <fieldset
-                      className="min-w-0 rounded-lg border border-slate-200 p-4"
-                      key={cost.id}
+                      className="rounded-lg border border-slate-200 bg-slate-50 p-4"
+                      key={line.id}
                     >
-                      <legend className="px-1 text-sm font-semibold">
-                        Fixed cost {index + 1}
+                      <legend className="px-1 text-sm font-semibold text-slate-900">
+                        Line {index + 1}
                       </legend>
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <TextField
-                          label="Cost name"
-                          name={`cost-${cost.id}-name`}
-                          maxLength={160}
-                          error={costErrors[cost.id]?.name}
-                          value={cost.name}
+                      <div className="grid gap-4 md:grid-cols-[minmax(12rem,1fr)_minmax(8rem,.55fr)_8rem_auto] md:items-start">
+                        <SelectField
+                          error={lineErrors[line.id]?.material}
+                          label="Material"
+                          name={`${line.id}-material`}
+                          required
+                          value={line.materialId}
                           onChange={(event) => {
-                            setFixedCosts((items) =>
-                              items.map((item) =>
-                                item.id === cost.id
-                                  ? { ...item, name: event.target.value }
-                                  : item,
-                              ),
+                            const selected = materials.find(
+                              (item) => item.id === event.target.value,
                             );
-                            markChanged();
+                            updateLine(line.id, {
+                              materialId: event.target.value,
+                              unit:
+                                selected && availableUnits.has(selected.unit)
+                                  ? selected.unit
+                                  : "",
+                            });
                           }}
-                        />
+                        >
+                          <option value="">Select a material</option>
+                          {materials.map((option) => (
+                            <option
+                              disabled={lines.some(
+                                (other) =>
+                                  other.id !== line.id &&
+                                  other.materialId === option.id,
+                              )}
+                              key={option.id}
+                              value={option.id}
+                            >
+                              {option.name}
+                            </option>
+                          ))}
+                        </SelectField>
                         <TextField
-                          label={`Amount (${currency})`}
-                          name={`cost-${cost.id}-amount`}
+                          error={lineErrors[line.id]?.quantity}
                           inputMode="decimal"
-                          error={costErrors[cost.id]?.amount}
-                          value={cost.amount}
-                          onChange={(event) => {
-                            setFixedCosts((items) =>
-                              items.map((item) =>
-                                item.id === cost.id
-                                  ? { ...item, amount: event.target.value }
-                                  : item,
-                              ),
-                            );
-                            markChanged();
-                          }}
+                          label="Required quantity"
+                          min="0"
+                          name={`${line.id}-quantity`}
+                          required
+                          step="any"
+                          type="text"
+                          value={line.quantity}
+                          onChange={(event) =>
+                            updateLine(line.id, {
+                              quantity: event.target.value,
+                            })
+                          }
                         />
+                        <SelectField
+                          error={lineErrors[line.id]?.unit}
+                          label="Unit"
+                          name={`${line.id}-unit`}
+                          required
+                          value={line.unit}
+                          onChange={(event) =>
+                            updateLine(line.id, { unit: event.target.value })
+                          }
+                        >
+                          <option value="">Select</option>
+                          {(material
+                            ? getCompatibleUnits(material.unit)
+                            : []
+                          ).map((unit) => (
+                            <option key={unit.code} value={unit.code}>
+                              {unit.abbreviation}
+                            </option>
+                          ))}
+                        </SelectField>
+                        <button
+                          aria-label={`Remove formulation line ${index + 1}`}
+                          className="mt-7 inline-flex min-h-11 items-center justify-center rounded-lg border border-red-200 bg-white px-4 text-sm font-semibold text-red-800 transition hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+
+                          onClick={() => removeLine(line.id)}
+                          type="button"
+                        >
+                          Remove
+                        </button>
                       </div>
-                      <button
-                        className="mt-3 min-h-11 rounded-lg px-3 text-sm font-semibold text-red-800 focus-visible:outline-2"
-                        type="button"
-                        aria-label={`Remove cost ${index + 1}`}
-                        onClick={() => {
+                      <div className="mt-3 flex flex-col gap-1 border-t border-slate-200 pt-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-slate-600">
+                          {material
+                            ? `${formatCurrencyDecimal(String(material.purchasePrice), currency)} per ${formatMaterialQuantity(material.packQuantity, material.unit)}`
+                            : "Select a material to see its purchase basis."}
+                        </p>
+                        <p className="font-semibold text-slate-950 tabular-nums">
+                          Line cost:{" "}
+                          {lineResult
+                            ? formatUnitCostDecimal(
+                                lineResult.lineCost,
+                                currency,
+                              )
+                            : "—"}
+                        </p>
+                      </div>
+                    </fieldset>
+                  );
+                })}
+              </div>
+            </section>
+            <section
+              className="border-t border-slate-200 p-5 sm:p-7"
+              aria-labelledby="fixed-costs-heading"
+            >
+              <h2
+                className="text-xl font-semibold text-slate-950"
+                id="fixed-costs-heading"
+              >
+                Fixed costs
+              </h2>
+              <p className="mt-2 text-sm text-slate-600">
+                Add labour, utilities or other production costs in {currency}.
+              </p>
+              {errors.fixedCosts ? (
+                <p role="alert" className="mt-3 text-sm text-red-700">
+                  {errors.fixedCosts}
+                </p>
+              ) : null}
+              <div className="mt-4 grid gap-4">
+                {fixedCosts.map((cost, index) => (
+                  <fieldset
+                    className="min-w-0 rounded-lg border border-slate-200 p-4"
+                    key={cost.id}
+                  >
+                    <legend className="px-1 text-sm font-semibold">
+                      Fixed cost {index + 1}
+                    </legend>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <TextField
+                        label="Cost name"
+                        name={`cost-${cost.id}-name`}
+                        maxLength={160}
+                        error={costErrors[cost.id]?.name}
+                        value={cost.name}
+                        onChange={(event) => {
                           setFixedCosts((items) =>
-                            items.filter((item) => item.id !== cost.id),
+                            items.map((item) =>
+                              item.id === cost.id
+                                ? { ...item, name: event.target.value }
+                                : item,
+                            ),
                           );
                           markChanged();
                         }}
-                      >
-                        Remove cost
-                      </button>
-                    </fieldset>
-                  ))}
-                </div>
-                <button
-                  className={`${secondaryActionClassName} mt-4`}
-                  disabled={fixedCosts.length >= 100}
-                  type="button"
-                  onClick={() => {
-                    setFixedCosts((items) => [
-                      ...items,
-                      { id: crypto.randomUUID(), name: "", amount: "" },
-                    ]);
-                    markChanged();
-                  }}
-                >
-                  Add fixed cost
-                </button>
-              </section>
-              <div className="px-5 pb-5 sm:px-7 sm:pb-7">
-                <FormActions>
-                  <button
-                    className={secondaryActionClassName}
-                    onClick={leaveForm}
-                    type="button"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="inline-flex min-h-12 w-full items-center justify-center rounded-lg bg-emerald-950 px-6 font-semibold text-white transition hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-800 disabled:cursor-wait disabled:opacity-70 sm:w-auto"
-                    disabled={isSubmitting}
-                    type="submit"
-                  >
-                    {isSubmitting ? "Saving draft…" : "Save draft batch"}
-                  </button>
-                </FormActions>
+                      />
+                      <TextField
+                        label={`Amount (${currency})`}
+                        name={`cost-${cost.id}-amount`}
+                        inputMode="decimal"
+                        error={costErrors[cost.id]?.amount}
+                        value={cost.amount}
+                        onChange={(event) => {
+                          setFixedCosts((items) =>
+                            items.map((item) =>
+                              item.id === cost.id
+                                ? { ...item, amount: event.target.value }
+                                : item,
+                            ),
+                          );
+                          markChanged();
+                        }}
+                      />
+                    </div>
+                    <button
+                      className="mt-3 min-h-11 rounded-lg px-3 text-sm font-semibold text-red-800 focus-visible:outline-2"
+                      type="button"
+                      aria-label={`Remove cost ${index + 1}`}
+                      onClick={() => {
+                        setFixedCosts((items) =>
+                          items.filter((item) => item.id !== cost.id),
+                        );
+                        markChanged();
+                      }}
+                    >
+                      Remove cost
+                    </button>
+                  </fieldset>
+                ))}
               </div>
-            </fieldset>
-          </div>
+              <button
+                className={`${secondaryActionClassName} mt-4`}
+                disabled={fixedCosts.length >= 100}
+                type="button"
+                onClick={() => {
+                  setFixedCosts((items) => [
+                    ...items,
+                    { id: crypto.randomUUID(), name: "", amount: "" },
+                  ]);
+                  markChanged();
+                }}
+              >
+                Add fixed cost
+              </button>
+            </section>
+            <div className="px-5 pb-5 sm:px-7 sm:pb-7">
+              <FormActions>
+                <button
+                  className={secondaryActionClassName}
+                  onClick={leaveForm}
+                  type="button"
+                >
+                  Cancel
+                </button>
+                <button
+                  className="inline-flex min-h-12 w-full items-center justify-center rounded-lg bg-emerald-950 px-6 font-semibold text-white transition hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-800 disabled:cursor-wait disabled:opacity-70 sm:w-auto"
+                  disabled={isSubmitting}
+                  type="submit"
+                >
+                  {isSubmitting ? "Saving draft…" : "Save draft batch"}
+                </button>
+              </FormActions>
+            </div>
+          </fieldset>
+        </div>
 
-          <aside
-            className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm xl:sticky xl:top-6"
-            aria-labelledby="live-cost-heading"
-            aria-live="polite"
+        <aside
+          className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm xl:sticky xl:top-6"
+          aria-labelledby="live-cost-heading"
+          aria-live="polite"
+        >
+          <h2
+            className="text-xl font-semibold text-slate-950"
+            id="live-cost-heading"
           >
-            <h2
-              className="text-xl font-semibold text-slate-950"
-              id="live-cost-heading"
+            Current cost estimate
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            Calculated from purchase prices in {currency}. Complete every line
+            to see totals.
+          </p>
+          {previewMessage ? (
+            <p role="status" className="mt-4 text-sm text-slate-600">
+              {previewMessage}
+            </p>
+          ) : null}
+          {currentPreview?.error ? (
+            <button
+              type="button"
+              className="min-h-11 underline"
+              onClick={() => {
+                setPreview(undefined);
+                setPreviewAttempt((value) => value + 1);
+              }}
             >
-              Live cost estimate
-            </h2>
-            <p className="mt-1 text-sm leading-6 text-slate-600">
-              Calculated from purchase prices in {currency}. Complete every line
-              to see totals.
-            </p>
-            <dl className="mt-5 divide-y divide-slate-200">
-              <CostRow
-                label="Materials"
-                value={
-                  calculation
-                    ? formatCurrencyDecimal(
-                        calculation.materialSubtotal,
-                        currency,
-                      )
-                    : "—"
-                }
-              />
-              <CostRow
-                label="Packaging"
-                value={
-                  calculation
-                    ? formatCurrencyDecimal(
-                        calculation.packagingSubtotal,
-                        currency,
-                      )
-                    : "—"
-                }
-              />
-              <CostRow
-                label="Fixed costs"
-                value={
-                  calculation
-                    ? formatCurrencyDecimal(
-                        calculation.fixedCostSubtotal,
-                        currency,
-                      )
-                    : "—"
-                }
-              />
-              <CostRow
-                label="Total batch cost"
-                strong
-                value={
-                  calculation
-                    ? formatCurrencyDecimal(
-                        calculation.totalBatchCost,
-                        currency,
-                      )
-                    : "—"
-                }
-              />
-              <CostRow
-                label="Cost per output unit"
-                strong
-                value={
-                  calculation
-                    ? formatUnitCostDecimal(
-                        calculation.costPerOutputUnit,
-                        currency,
-                      )
-                    : "—"
-                }
-              />
-            </dl>
-            <p className="mt-5 border-t border-slate-200 pt-4 text-xs leading-5 text-slate-500">
-              Estimates use current material prices, fixed costs and compatible
-              unit conversion. Quantities and fixed costs are saved; material
-              prices may change before production.
-            </p>
-          </aside>
-        </form>
-      )}
+              Retry calculation
+            </button>
+          ) : null}
+          <dl className="mt-5 divide-y divide-slate-200">
+            <CostRow
+              label="Materials"
+              value={
+                calculation
+                  ? formatCurrencyDecimal(
+                      calculation.materialSubtotal,
+                      currency,
+                    )
+                  : "—"
+              }
+            />
+            <CostRow
+              label="Packaging"
+              value={
+                calculation
+                  ? formatCurrencyDecimal(
+                      calculation.packagingSubtotal,
+                      currency,
+                    )
+                  : "—"
+              }
+            />
+            <CostRow
+              label="Fixed costs"
+              value={
+                calculation
+                  ? formatCurrencyDecimal(
+                      calculation.fixedCostSubtotal,
+                      currency,
+                    )
+                  : "—"
+              }
+            />
+            <CostRow
+              label="Total batch cost"
+              strong
+              value={
+                calculation
+                  ? formatCurrencyDecimal(calculation.totalBatchCost, currency)
+                  : "—"
+              }
+            />
+            <CostRow
+              label="Cost per output unit"
+              strong
+              value={
+                calculation
+                  ? formatUnitCostDecimal(
+                      calculation.costPerOutputUnit,
+                      currency,
+                    )
+                  : "—"
+              }
+            />
+          </dl>
+          <p className="mt-5 border-t border-slate-200 pt-4 text-xs leading-5 text-slate-500">
+            Estimates use current material prices, fixed costs and compatible
+            unit conversion. Quantities and fixed costs are saved; material
+            prices may change before production.
+          </p>
+        </aside>
+      </form>
     </div>
   );
-}
-
-function lineCategory(
-  material: MaterialSummary,
-): Exclude<BatchLineCategory, "Production cost"> {
-  return material.category === "Packaging" ? "Packaging" : "Material";
 }
 
 function CostRow({

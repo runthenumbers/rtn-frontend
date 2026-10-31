@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { chromium } from "@playwright/test";
+import { chromium, expect } from "@playwright/test";
 import { default as axeModule } from "@axe-core/playwright";
 const AxeBuilder = axeModule.default ?? axeModule;
 const frontend = path.resolve(
@@ -161,7 +161,7 @@ async function fillBatch(page, materialId, name, reference) {
   await page.goto(`${base}/batches/new`);
   await page
     .getByRole("heading", {
-      name: "Add materials before building a batch",
+      name: "Add materials to calculate costs",
       exact: true,
     })
     .waitFor();
@@ -189,6 +189,53 @@ async function fillBatch(page, materialId, name, reference) {
   await page.getByLabel("Cost name", { exact: false }).fill("Labour");
   await page.getByLabel("Amount (GBP)", { exact: true }).fill("1.234567");
   await page.getByLabel("Notes (optional)").fill("Persist this formulation");
+  const summary = page.locator('aside[aria-labelledby="live-cost-heading"]');
+  await expect(summary.getByText("£7.01", { exact: true })).toBeVisible();
+  await expect(summary.getByText("£0.5842", { exact: true })).toBeVisible();
+  const previewPattern = "**/api/v1/workspaces/*/batches/preview";
+  let releaseOld;
+  let oldStarted = false;
+  const oldPending = new Promise((resolve) => {
+    releaseOld = resolve;
+  });
+  await page.route(previewPattern, async (route) => {
+    if (route.request().postDataJSON().lines[0]?.quantity === "1000") {
+      const response = await route.fetch();
+      oldStarted = true;
+      await oldPending;
+      await route.fulfill({ response }).catch(() => undefined);
+    } else await route.continue();
+  });
+  await page.getByLabel("Required quantity", { exact: false }).fill("1000");
+  await expect(summary.getByText("£7.01", { exact: true })).toHaveCount(0);
+  await expect.poll(() => oldStarted).toBe(true);
+  await page.getByLabel("Required quantity", { exact: false }).fill("750");
+  await expect(summary.getByText("£7.01", { exact: true })).toBeVisible();
+  releaseOld();
+  await page.unroute(previewPattern);
+  await expect(summary.getByText("£8.93", { exact: true })).toHaveCount(0);
+  await page.route(previewPattern, (route) =>
+    route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
+  );
+  await page.getByLabel("Required quantity", { exact: false }).fill("751");
+  await expect(
+    summary.getByText(
+      "Unable to calculate costs. You can still save this draft.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(summary.getByText("£7.01", { exact: true })).toHaveCount(0);
+  await page.unroute(previewPattern);
+  await summary
+    .getByRole("button", { name: "Retry calculation", exact: true })
+    .click();
+  await expect(summary.getByText("£7.01", { exact: true })).toBeVisible();
+  await page.getByLabel("Required quantity", { exact: false }).fill("750");
+  await expect(summary.getByText("£7.01", { exact: true })).toBeVisible();
+  console.log(
+    "PASS: backend preview, booked costs, stale-response protection and retry",
+  );
+
   await page.getByLabel("Batch name", { exact: false }).focus();
   await page.keyboard.press("Tab");
   assert.equal(
@@ -450,6 +497,36 @@ async function fillBatch(page, materialId, name, reference) {
   );
   console.log(
     "PASS: lost creation response reconciles saved batch without duplicate POST",
+  );
+  for (const [unit, label, reference] of [
+    ["kg", "Mass draft", "MASS-007"],
+    ["item", "Empty draft", "EMPTY-007"],
+  ]) {
+    await page.goto(`${base}/batches/new`);
+    await fillBatch(page, materialId, label, reference);
+    await page.locator('select[name="outputUnit"]').selectOption(unit);
+    if (label === "Empty draft")
+      await page
+        .getByRole("button", { name: "Remove formulation line 1", exact: true })
+        .click();
+    await expect(
+      page.getByText(
+        unit === "kg"
+          ? "Cost calculation is available for item-output batches only. This draft can still be saved."
+          : "Add a material to calculate costs. This draft can still be saved.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Save draft batch", exact: true })
+      .click();
+    await page.waitForURL(/\/batches\/[0-9a-f-]+$/);
+    await page.getByRole("heading", { name: label, exact: true }).waitFor();
+    await page.reload();
+    await page.getByRole("heading", { name: label, exact: true }).waitFor();
+  }
+  console.log(
+    "PASS: mass-output and empty drafts save and reopen without calculation",
   );
   const member = await browser.newContext(),
     mp = await member.newPage();

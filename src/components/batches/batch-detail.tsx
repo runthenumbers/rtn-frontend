@@ -153,16 +153,18 @@ export function BatchDetail({ batchId }: { batchId: string }) {
           ) : null}
           {materialStatus === "error" ? (
             <p role="status" className="mt-4 text-sm text-amber-900">
-              Material prices could not be loaded.{" "}
+              Material labels could not be loaded. Calculated costs remain
+              available.{" "}
               <button className="min-h-11 underline" onClick={retryMaterials}>
-                Retry material prices
+                Retry materials
               </button>
             </p>
           ) : null}
           {batch.cost.total === null ? (
             <p className="mt-4 text-sm text-slate-600" role="status">
-              Some current material prices or units are unavailable. Totals
-              cannot be estimated.
+              {current.batch.calculation.status === "unavailable"
+                ? current.batch.calculation.message
+                : "Costs are unavailable."}
             </p>
           ) : null}
           <BatchLinesTable

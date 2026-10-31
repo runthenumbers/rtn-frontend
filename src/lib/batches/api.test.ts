@@ -6,13 +6,39 @@ import {
   listBatches,
   parseBatch,
   saveBatch,
+  previewBatch,
+  parseCalculation,
 } from "./api.ts";
 import type { BatchInput } from "./types.ts";
 import { batchView } from "./view-model.ts";
 import { draftKey, parseDraft } from "./draft.ts";
-import { calculateBatchCost } from "./batch-calculations.ts";
 const workspaceId = "workspace-id";
+const calculation = {
+  status: "available",
+  adapterVersion: "purchase-basis-half-even-48dp-v1",
+  engine: {
+    success: true,
+    calculationEngineVersion: "1.1.0",
+    roundingPolicyVersion: "line-booked-half-even-largest-remainder-v3",
+    currencyPolicyVersion: "mvp-currency-registry-v1",
+    warnings: [{ code: "ZERO_SELLING_PRICE", message: "Zero selling price" }],
+  },
+  lines: [
+    {
+      materialId: "material-id",
+      name: "Oil",
+      category: "INGREDIENT",
+      lineCost: "5.78",
+    },
+  ],
+  materialSubtotal: "5.78",
+  packagingSubtotal: "0.00",
+  fixedCostSubtotal: "1.23",
+  totalBatchCost: "7.01",
+  costPerOutputUnit: "0.584167",
+};
 const wire = {
+  calculation,
   id: "batch-id",
   workspaceId,
   name: "Body wash",
@@ -119,6 +145,11 @@ test("list fetches every page so filtering does not omit batches after the first
                 ...wire,
                 id: `id-${i}`,
                 lines: [],
+                calculation: {
+                  status: "unavailable",
+                  code: "EMPTY_FORMULATION",
+                  message: "Add a material",
+                },
                 fixedCosts: [],
               }))
             : [wire],
@@ -186,7 +217,7 @@ test("network failure does not automatically retry a creation", async () => {
   await assert.rejects(saveBatch(workspaceId, input), TypeError);
   assert.equal(fetch.mock.callCount(), 1);
 });
-test("current estimates include saved fixed costs without rounding intermediate totals", () => {
+test("view uses backend costs even if local purchase prices change", () => {
   const batch = parseBatch(wire, workspaceId);
   const view = batchView(batch, [
     {
@@ -195,7 +226,7 @@ test("current estimates include saved fixed costs without rounding intermediate 
       name: "Oil",
       category: "Ingredient",
       supplier: "",
-      purchasePrice: "38.50",
+      purchasePrice: "999.99",
       packQuantity: "5",
       stockQuantity: "0",
       currencyCode: "GBP",
@@ -205,35 +236,66 @@ test("current estimates include saved fixed costs without rounding intermediate 
     },
   ]);
   assert.equal(view.lines[0].name, "Oil");
-  assert.equal(view.lines[0].lineCost, "5.7750");
+  assert.equal(view.lines[0].lineCost, "5.78");
   assert.equal(view.cost.production, "1.23");
   assert.equal(view.cost.total, "7.01");
-  assert.equal(view.cost.unit, "0.5841");
+  assert.equal(view.cost.unit, "0.584167");
   assert.equal(view.lines[1].lineCost, "1.234567");
 });
 test("saved quantities and fixed costs remain readable when material prices are unavailable", () => {
   const view = batchView(parseBatch(wire, workspaceId), []);
-  assert.equal(view.cost.total, null);
+  assert.equal(view.cost.total, "7.01");
   assert.equal(view.lines[0].quantity, "750 ml");
   assert.equal(view.cost.production, "1.23");
 });
-test("fixed cost summation is exact and rejects negative amounts", () => {
-  const result = calculateBatchCost({
-    lines: [],
-    fixedCosts: [{ amount: "0.005" }, { amount: "0.005" }, { amount: "0" }],
-    targetOutputQuantity: "3",
-    targetOutputUnit: "item",
-  });
-  assert.equal(result.totalBatchCost, "0.01");
-  assert.equal(result.costPerOutputUnit, "0.0033");
-  assert.throws(() =>
-    calculateBatchCost({
-      lines: [],
-      fixedCosts: [{ amount: "-1" }],
-      targetOutputQuantity: "1",
-      targetOutputUnit: "item",
-    }),
+test("unavailable calculations preserve saved inputs without a local fallback", () => {
+  const view = batchView(
+    parseBatch(
+      {
+        ...wire,
+        calculation: {
+          status: "unavailable",
+          code: "ITEM_OUTPUT_REQUIRED",
+          message: "Item outputs only",
+        },
+      },
+      workspaceId,
+    ),
+    [],
   );
+  assert.equal(view.cost.total, null);
+  assert.equal(view.cost.production, null);
+  assert.equal(view.lines[1].lineCost, "1.234567");
+});
+test("preview whitelists inputs and validates server results", async () => {
+  const fetch = respond(200, calculation);
+  const result = await previewBatch(workspaceId, {
+    ...input,
+    currencyCode: "USD",
+  } as unknown as BatchInput);
+  assert.equal(result.status, "available");
+  const [url, options] = fetch.mock.calls[0].arguments as [string, RequestInit];
+  assert.equal(url, "/api/v1/workspaces/workspace-id/batches/preview");
+  assert.deepEqual(Object.keys(JSON.parse(options.body as string)).sort(), [
+    "fixedCosts",
+    "lines",
+    "outputUnitCode",
+    "targetOutputQuantity",
+  ]);
+});
+test("rejects malformed calculations and mismatched line identities", () => {
+  for (const value of [
+    null,
+    { ...calculation, totalBatchCost: 7.01 },
+    { ...calculation, lines: [] },
+    { ...calculation, engine: { success: true } },
+    {
+      ...calculation,
+      lines: [{ ...calculation.lines[0], materialId: "other" }],
+    },
+  ]) {
+    assert.throws(() => parseCalculation(value, ["material-id"]), BatchError);
+  }
 });
 test("recovery keys isolate accounts and workspaces, and drafts preserve incomplete decimal text", () => {
   assert.notEqual(
@@ -257,5 +319,8 @@ test("recovery keys isolate accounts and workspaces, and drafts preserve incompl
   assert.deepEqual(parseDraft(JSON.stringify(draft)), draft);
   assert.equal(parseDraft("invalid"), null);
   assert.equal(parseDraft(JSON.stringify({ ...draft, lines: [null] })), null);
-  assert.equal(parseDraft(JSON.stringify({ ...draft, lines: [] })), null);
+  assert.deepEqual(parseDraft(JSON.stringify({ ...draft, lines: [] })), {
+    ...draft,
+    lines: [],
+  });
 });

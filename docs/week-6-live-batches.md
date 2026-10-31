@@ -1,5 +1,7 @@
 # Week 6 — Live batch UI release guide
 
+Week 7 supersedes calculation behaviour: see `../../rtn-backend/docs/week-7-calculation-integration.md`. Backend integration must deploy first.
+
 Deployment preparation only, as requested. No staging or production deployment
 has been performed, and no hosted authenticated smoke test is claimed.
 
@@ -107,8 +109,8 @@ Use a designated test workspace/account on the target environment:
 3. Confirm the detail URL uses the persisted UUID; verify quantities, fixed cost,
    Draft status and notes. Reload and open that URL in another tab. Check that
    the catalogue and dashboard include the batch.
-4. With those inputs, the current material estimate is 5.7750, total estimate
-   7.01 and unit estimate 0.5841. These are current estimates, not final snapshots.
+4. With those inputs, the Week 7 booked material estimate is 5.78, total estimate
+   7.01 and unit estimate 0.584167 (displayed as 0.5842). These are current estimates, not final snapshots.
 5. Check search, status filtering, Clear filters, mobile layouts and keyboard
    focus. In developer tools confirm same-origin /api/v1 requests succeed and
    no client-side exception occurs.

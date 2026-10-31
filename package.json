@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test:calculations": "node --experimental-strip-types src/lib/batches/batch-calculations.test.ts",
+    "test:calculations": "node --experimental-strip-types --test src/lib/batches/api.test.ts",
     "check": "npm run lint && npm run typecheck && npm run format:check",
     "test:auth": "node --experimental-strip-types --test src/lib/auth/api.test.ts",
     "test:onboarding": "node --experimental-strip-types --test src/lib/onboarding/api.test.ts",

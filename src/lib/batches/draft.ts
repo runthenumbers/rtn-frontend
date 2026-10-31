@@ -51,7 +51,6 @@ export function parseDraft(raw: string | null): BatchDraft | null {
       )
         return null;
     }
-    if ((item.lines as unknown[]).length === 0) return null;
     return item as unknown as BatchDraft;
   } catch {
     return null;

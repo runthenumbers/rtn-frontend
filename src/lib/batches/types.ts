@@ -17,7 +17,36 @@ export interface BatchInput {
   lines: { materialId: string; quantity: string; unitCode: MaterialUnit }[];
   fixedCosts: { name: string; amount: string }[];
 }
+export type BatchCalculationInput = Pick<
+  BatchInput,
+  "targetOutputQuantity" | "outputUnitCode" | "lines" | "fixedCosts"
+>;
+export type BatchCalculation =
+  | { status: "unavailable"; code: string; message: string }
+  | {
+      status: "available";
+      adapterVersion: string;
+      engine: {
+        success: true;
+        calculationEngineVersion: string;
+        roundingPolicyVersion: string;
+        currencyPolicyVersion: string;
+        warnings: { code: string; message: string }[];
+      };
+      lines: {
+        materialId: string;
+        name: string;
+        category: string;
+        lineCost: string;
+      }[];
+      materialSubtotal: string;
+      packagingSubtotal: string;
+      fixedCostSubtotal: string;
+      totalBatchCost: string;
+      costPerOutputUnit: string;
+    };
 export interface Batch extends BatchInput {
+  calculation: BatchCalculation;
   id: string;
   workspaceId: string;
   currencyCode: string;
@@ -48,7 +77,7 @@ export interface BatchViewModel {
   cost: {
     materials: string | null;
     packaging: string | null;
-    production: string;
+    production: string | null;
     total: string | null;
     unit: string | null;
   };
