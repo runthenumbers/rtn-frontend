@@ -1,5 +1,5 @@
 /* Runs only against a disposable local PostgreSQL database; never production. */
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -19,6 +19,10 @@ const backendRequire = createRequire(path.join(backend, "package.json"));
 const { Client } = backendRequire("pg");
 const argon2 = backendRequire("argon2");
 const databaseUrl = process.env.BROWSER_TEST_DATABASE_URL;
+const fullRelease = process.env.BROWSER_RELEASE_CHECK === "1";
+const outboxToken = randomUUID();
+let ownerPassword = "browser-test-password";
+const registeredEmail = `release-${randomUUID()}@week8.example`;
 if (
   !databaseUrl ||
   !["localhost", "127.0.0.1"].includes(new URL(databaseUrl).hostname)
@@ -28,7 +32,7 @@ if (
   );
 }
 const db = new Client({ connectionString: databaseUrl });
-const base = "http://localhost:3100";
+const base = fullRelease ? "https://localhost:3443" : "http://localhost:3100";
 const backendOrigin = "http://127.0.0.1:3101";
 const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), "rtn-week6-"));
 const userIds = [],
@@ -36,6 +40,7 @@ const userIds = [],
   emails = [];
 const processes = [];
 let browser;
+let tlsDirectory;
 let connected = false;
 function start(cwd, args, env, logName) {
   const log = fs.openSync(path.join(artifacts, logName), "w");
@@ -46,6 +51,7 @@ function start(cwd, args, env, logName) {
     stdio: ["ignore", log, log],
   });
   processes.push(processHandle);
+  return processHandle;
 }
 async function ready(url) {
   for (let i = 0; i < 60; i++) {
@@ -61,7 +67,9 @@ async function ready(url) {
 async function login(page, index = 0) {
   await page.goto(`${base}/sign-in`);
   await page.getByLabel("Email address").fill(emails[index]);
-  await page.locator('input[name="password"]').fill("browser-test-password");
+  await page
+    .locator('input[name="password"]')
+    .fill(index === 0 ? ownerPassword : "browser-test-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.waitForURL("**/dashboard");
 }
@@ -120,9 +128,13 @@ async function fillBatch(page, materialId, name, reference) {
     );
   start(
     backend,
-    ["dist/main.js"],
+    fullRelease
+      ? [path.join(frontend, "scripts/browser-backend.mjs")]
+      : ["dist/main.js"],
     {
-      NODE_ENV: "development",
+      NODE_ENV: fullRelease ? "production" : "development",
+      BROWSER_RELEASE_CHECK: fullRelease ? "1" : "0",
+      BROWSER_OUTBOX_TOKEN: outboxToken,
       PORT: "3101",
       DATABASE_URL: databaseUrl,
       DIRECT_URL: databaseUrl,
@@ -134,24 +146,229 @@ async function fillBatch(page, materialId, name, reference) {
     "backend.log",
   );
   await ready(`${backendOrigin}/health/ready`);
+  if (fullRelease) {
+    const build = start(
+      frontend,
+      ["node_modules/next/dist/bin/next", "build", "--webpack"],
+      { API_URL: backendOrigin, NEXT_TELEMETRY_DISABLED: "1" },
+      "frontend-build.log",
+    );
+    await new Promise((resolve, reject) => {
+      build.once("error", reject);
+      build.once("exit", (code) =>
+        code === 0
+          ? resolve()
+          : reject(
+              new Error(
+                `Production frontend build failed. See ${artifacts}/frontend-build.log`,
+              ),
+            ),
+      );
+    });
+  }
   start(
     frontend,
-    ["node_modules/next/dist/bin/next", "dev", "--port", "3100"],
+    [
+      "node_modules/next/dist/bin/next",
+      fullRelease ? "start" : "dev",
+      "--port",
+      "3100",
+    ],
     { API_URL: backendOrigin, NEXT_TELEMETRY_DISABLED: "1" },
     "frontend.log",
   );
-  await ready(`${base}/sign-in`);
+  await ready("http://localhost:3100/sign-in");
+  if (fullRelease) {
+    tlsDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "rtn-browser-tls-"));
+    const keyFile = path.join(tlsDirectory, "key.pem"),
+      certFile = path.join(tlsDirectory, "cert.pem"),
+      configFile = path.join(tlsDirectory, "openssl.cnf");
+    fs.writeFileSync(
+      configFile,
+      "[req]\ndistinguished_name=dn\nprompt=no\nx509_extensions=v3_req\n[dn]\nCN=localhost\n[v3_req]\nsubjectAltName=DNS:localhost,IP:127.0.0.1\n",
+    );
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        keyFile,
+        "-out",
+        certFile,
+        "-days",
+        "1",
+        "-config",
+        configFile,
+      ],
+      { stdio: "ignore" },
+    );
+    start(
+      frontend,
+      ["scripts/browser-https-proxy.mjs"],
+      {
+        BROWSER_RELEASE_CHECK: "1",
+        BROWSER_TLS_CERT: certFile,
+        BROWSER_TLS_KEY: keyFile,
+      },
+      "https-proxy.log",
+    );
+  }
   browser = await chromium.launch({
     headless: true,
     ...(process.env.BROWSER_CHANNEL
       ? { channel: process.env.BROWSER_CHANNEL }
       : {}),
   });
-  const context = await browser.newContext();
+  const context = await browser.newContext({ ignoreHTTPSErrors: fullRelease });
   const page = await context.newPage();
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   page.on("dialog", (dialog) => dialog.accept());
+  if (fullRelease) {
+    async function mailLink(subject) {
+      let link;
+      await expect
+        .poll(async () => {
+          const response = await fetch("http://127.0.0.1:3102/outbox", {
+            headers: { Authorization: `Bearer ${outboxToken}` },
+          });
+          const messages = await response.json();
+          const message = messages.findLast(
+            (item) => item.to === registeredEmail && item.subject === subject,
+          );
+          link = message?.text
+            .split("\n")
+            .find((line) => line.startsWith(`${base}/`));
+          return !!link;
+        })
+        .toBe(true);
+      return link;
+    }
+    await page.goto(`${base}/sign-up`);
+    await page.getByLabel("Full name", { exact: false }).fill("Release Test");
+    await page
+      .getByLabel("Email address", { exact: false })
+      .fill(registeredEmail);
+    await page.locator('input[name="password"]').fill("release-test-password");
+    await page
+      .locator('input[name="confirmPassword"]')
+      .fill("release-test-password");
+    await page
+      .getByRole("button", { name: "Create account", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Resend verification email", exact: true })
+      .waitFor();
+    await page.goto(await mailLink("Verify your RTN email address"));
+    await expect.poll(() => new URL(page.url()).hash).toBe("");
+    await page
+      .getByRole("button", { name: "Verify email", exact: true })
+      .click();
+    await page.getByText("Your email is verified.", { exact: false }).waitFor();
+    await page.goto(`${base}/sign-in`);
+    await page
+      .getByLabel("Email address", { exact: false })
+      .fill(registeredEmail);
+    await page.locator('input[name="password"]').fill("release-test-password");
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.waitForURL(/\/onboarding$/);
+    const sessionCookie = (await context.cookies()).find(
+      (cookie) => cookie.name === "__Host-rtn-session",
+    );
+    assert.equal(sessionCookie?.secure, true);
+    assert.equal(sessionCookie?.httpOnly, true);
+    assert.equal(sessionCookie?.path, "/");
+
+    await page
+      .getByLabel("Business name", { exact: false })
+      .fill("Week 8 release workspace");
+    await page
+      .getByLabel("Base currency", { exact: false })
+      .selectOption("GBP");
+    await page
+      .getByRole("button", { name: "Create workspace", exact: true })
+      .click();
+    await page.waitForURL(/\/dashboard$/);
+    await page
+      .getByRole("heading", { name: "Welcome to RTN", exact: true })
+      .waitFor();
+    const registration = await db.query(
+      'SELECT "id" FROM "User" WHERE "email"=$1',
+      [registeredEmail],
+    );
+    const registeredId = registration.rows[0].id;
+    userIds.push(registeredId);
+    const membership = await db.query(
+      'SELECT "workspaceId" FROM "Membership" WHERE "userId"=$1',
+      [registeredId],
+    );
+    workspaceIds.push(membership.rows[0].workspaceId);
+    [userIds[0], userIds[userIds.length - 1]] = [
+      userIds[userIds.length - 1],
+      userIds[0],
+    ];
+    [workspaceIds[0], workspaceIds[workspaceIds.length - 1]] = [
+      workspaceIds[workspaceIds.length - 1],
+      workspaceIds[0],
+    ];
+    emails[0] = registeredEmail;
+    ownerPassword = "release-reset-password";
+    await db.query(
+      'UPDATE "Membership" SET "workspaceId"=$1 WHERE "userId"=$2',
+      [workspaceIds[0], userIds[1]],
+    );
+
+    await page.reload();
+    await page
+      .getByRole("heading", { name: "Welcome to RTN", exact: true })
+      .waitFor();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page
+      .getByRole("button", { name: "Sign out", exact: true })
+      .filter({ visible: true })
+      .click();
+    await page.waitForURL(/\/sign-in$/);
+    await page.goto(`${base}/forgot-password`);
+    await page
+      .getByLabel("Email address", { exact: false })
+      .fill(registeredEmail);
+    await page
+      .getByRole("button", { name: "Send reset instructions", exact: true })
+      .click();
+    await page
+      .getByRole("heading", { name: "Check your inbox", exact: true })
+      .waitFor();
+    await page.goto(await mailLink("Reset your RTN password"));
+    await page.locator('input[name="password"]').fill("release-reset-password");
+    await page
+      .locator('input[name="confirmPassword"]')
+      .fill("release-reset-password");
+    await page
+      .getByRole("button", { name: "Reset password", exact: true })
+      .click();
+    await page.waitForURL(/\/sign-in\?reset=success$/);
+    await page
+      .getByLabel("Email address", { exact: false })
+      .fill(registeredEmail);
+    await page.locator('input[name="password"]').fill("release-reset-password");
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.waitForURL(/\/dashboard$/);
+    await page
+      .getByRole("heading", { name: "Welcome to RTN", exact: true })
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Sign out", exact: true })
+      .filter({ visible: true })
+      .click();
+    await page.waitForURL(/\/sign-in$/);
+    console.log(
+      "PASS: real registration, captured verification email, sign-in, onboarding, dashboard reload, sign-out and password reset",
+    );
+  }
   await login(page);
   await page.goto(`${base}/batches`);
   await page
@@ -236,6 +453,16 @@ async function fillBatch(page, materialId, name, reference) {
     "PASS: backend preview, booked costs, stale-response protection and retry",
   );
 
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.getByLabel("Batch name", { exact: false })).toHaveValue(
+    "Live body wash",
+  );
+  await expect(
+    page.getByText(
+      "Your unfinished batch was restored. Review it before saving.",
+      { exact: true },
+    ),
+  ).toHaveCount(0);
   await page.getByLabel("Batch name", { exact: false }).focus();
   await page.keyboard.press("Tab");
   assert.equal(
@@ -308,6 +535,68 @@ async function fillBatch(page, materialId, name, reference) {
   console.log(
     "PASS: material → formulation + fixed cost → save → reload/new-tab reopen; exact database decimals",
   );
+  const dashboardTab = await context.newPage();
+  const dashboardRequests = [];
+  dashboardTab.on("request", (request) => {
+    if (request.url().includes("/api/v1/workspaces/"))
+      dashboardRequests.push(request.url());
+  });
+  await dashboardTab.goto(`${base}/dashboard`);
+  await dashboardTab
+    .getByRole("heading", { name: "Production overview", exact: true })
+    .waitFor();
+  await expect(
+    dashboardTab.getByText("1 of 1 batches included.", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    dashboardTab.getByText("£7.01", { exact: true }).first(),
+  ).toBeVisible();
+  assert.equal(
+    dashboardRequests.some((url) => /\/(materials|batches)(\?|$)/.test(url)),
+    false,
+    "dashboard uses only summary endpoint",
+  );
+  await audit(dashboardTab, "live dashboard");
+  for (const width of [320, 390, 768, 1280]) {
+    await dashboardTab.setViewportSize({ width, height: 900 });
+    assert.equal(
+      await dashboardTab.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      true,
+      `dashboard width ${width}`,
+    );
+  }
+  await page.goto(`${base}/materials/${materialId}/edit`);
+  await page.getByLabel("Purchase price (GBP)").fill("40.00");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(
+    dashboardTab.getByText("£7.23", { exact: true }).first(),
+  ).toBeVisible();
+  await expect(tab.getByText("£7.23", { exact: true })).toBeVisible();
+  await page.getByLabel("Purchase price (GBP)").fill("38.50");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(
+    dashboardTab.getByText("£7.01", { exact: true }).first(),
+  ).toBeVisible();
+  await dashboardTab.close();
+  const dashboardPattern = "**/api/v1/workspaces/*/dashboard";
+  await page.route(dashboardPattern, (route) =>
+    route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
+  );
+  await page.goto(`${base}/dashboard`);
+  await page
+    .getByRole("heading", { name: "Unable to load dashboard", exact: true })
+    .waitFor();
+  await page.unroute(dashboardPattern);
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await page
+    .getByRole("heading", { name: "Production overview", exact: true })
+    .waitFor();
+  console.log(
+    "PASS: summary-only dashboard, counts, exact costs, cross-tab material repricing, errors/retry and accessibility",
+  );
+
   await page.goto(`${base}/batches`);
   await page
     .getByRole("link", { name: "Live body wash", exact: true })
@@ -528,7 +817,18 @@ async function fillBatch(page, materialId, name, reference) {
   console.log(
     "PASS: mass-output and empty drafts save and reopen without calculation",
   );
-  const member = await browser.newContext(),
+  await page.goto(`${base}/dashboard`);
+  await page
+    .getByRole("heading", { name: "Production overview", exact: true })
+    .waitFor();
+  await expect(page.getByText(/2 unavailable\./)).toBeVisible();
+  await expect(
+    page
+      .locator('section[aria-labelledby="workspace-summary-heading"]')
+      .getByText("£12.79", { exact: true }),
+  ).toBeVisible();
+
+  const member = await browser.newContext({ ignoreHTTPSErrors: fullRelease }),
     mp = await member.newPage();
   await login(mp, 1);
   await mp.goto(batchUrl);
@@ -548,7 +848,7 @@ async function fillBatch(page, materialId, name, reference) {
   await mp
     .getByRole("heading", { name: "Batch creation is restricted", exact: true })
     .waitFor();
-  const outsider = await browser.newContext(),
+  const outsider = await browser.newContext({ ignoreHTTPSErrors: fullRelease }),
     op = await outsider.newPage();
   await login(op, 2);
   await op.goto(`${base}/batches`);
@@ -587,8 +887,24 @@ async function fillBatch(page, materialId, name, reference) {
         /* Already stopped. */
       }
     }
+    if (tlsDirectory) fs.rmSync(tlsDirectory, { recursive: true, force: true });
     if (!connected) return;
     try {
+      const registered = await db.query(
+        'SELECT "id" FROM "User" WHERE "email"=$1',
+        [registeredEmail],
+      );
+      if (registered.rows.length) {
+        const id = registered.rows[0].id;
+        if (!userIds.includes(id)) userIds.push(id);
+        const memberships = await db.query(
+          'SELECT "workspaceId" FROM "Membership" WHERE "userId"=$1',
+          [id],
+        );
+        for (const row of memberships.rows)
+          if (!workspaceIds.includes(row.workspaceId))
+            workspaceIds.push(row.workspaceId);
+      }
       await db.query(
         'DELETE FROM "Batch" WHERE "workspaceId"=ANY($1::uuid[])',
         [workspaceIds],

@@ -1,6 +1,6 @@
 # Frontend integration contracts
 
-This document records the live authentication, workspace, material and batch contracts. Dashboard counts and cost estimates derive from persisted records.
+This document records the live authentication, workspace, material and batch contracts. Dashboard counts and current cost estimates come from a dedicated backend summary endpoint.
 
 ## Authentication session
 
@@ -120,8 +120,7 @@ The material schema and decimal-string contracts are now defined in
 `GET /v1/workspaces/:workspaceId/batches` returns `{ items: Batch[] }` with at
 most 100 records per request. The frontend fetches all pages (limit=100 and an
 offset) before applying catalogue search/status filters, so older saved batches
-are included. The dashboard uses this same collection for counts and recent
-batches. `GET /v1/workspaces/:workspaceId/batches/:batchId` loads detail independently
+are included. The catalogue uses this collection; the dashboard uses its dedicated summary endpoint. `GET /v1/workspaces/:workspaceId/batches/:batchId` loads detail independently
 of catalogue pagination. A 404 produces Batch not found; network/server errors
 produce retry UI. There is no sample-data fallback.
 
@@ -143,21 +142,25 @@ status, user, currency or workspace ownership. The backend supplies ownership
 and currency, rechecks permissions in the write transaction, validates materials
 and compatible units, and atomically persists both child collections.
 
-The builder requires at least one material and a planned date. Decimal fields
+The builder requires a planned date and allows an empty formulation to be saved as a draft. Decimal fields
 support up to 14 integer digits and 6 fractional digits; quantities are positive,
 COUNT quantities are whole, and fixed costs can be zero. Name/reference limits
 are 160/80 characters, notes 5000, line count 500 and fixed-cost count 100.
 OWNER/ADMIN can save and MEMBER can read. All writes require trusted Origin and
 cookie authentication. Reference uniqueness is case sensitive per workspace.
 
-Current cost estimates use exact integer fractions for compatible unit conversion,
-material costs, fixed-cost summation and division. Totals are rounded half-up to
-2 decimal places once after summation; individual material line costs and unit
-costs use 4 places. Fixed-cost inputs persist with six-place precision. These
-estimates are advisory: the API stores quantities and fixed costs, without
-material-price snapshots, authoritative totals, actual output or yield. Reopening
-a batch uses current material prices. Missing/incompatible material prices leave
-estimates unavailable while retaining saved quantities and fixed costs on screen.
+Current cost estimates come from the unchanged backend engine. The application
+adapter derives consumed material costs using exact purchase-basis ratios and
+48-place decimal normalization. The engine books each material line half-even
+at currency scale, then sums booked values. Fixed costs are summed exactly before
+the engine books the aggregate batch overhead. Engine per-item output uses six
+decimals; the UI formats it to at most four for display. No browser arithmetic
+feeds totals. Fixed-cost inputs persist with six-place precision. There are no
+historical material-price snapshots, actual output or yield. Reopening a batch
+uses current prices. Item output must be whole and within engine limits for a
+calculation; empty, mass/volume and oversized drafts remain saveable with explicit
+unavailable results. Selling price is zero for cost-only calculations; its engine
+warning is retained, and revenue/profit are not shown.
 
 Validation errors map to batch fields and indexed line/fixed-cost inputs. A 401
 refreshes the session and returns to sign-in; an unfinished recovery copy in
@@ -203,3 +206,23 @@ states instead of sample records. A successful write updates the shared list,
 revalidates it and sends a workspace-scoped BroadcastChannel notification to other
 tabs. Owner/admin permissions are enforced both in UI and backend; MEMBER fields
 are disabled. Server field errors map to inputs and drafts survive failed saves.
+
+## Dashboard and refresh
+
+`GET /api/v1/workspaces/:workspaceId/dashboard` returns workspace/currency identity,
+a generation timestamp, material and batch counts, counts by saved status,
+`estimatedCosts` (decimal-string total and included/unavailable batch counts), and
+at most three recent summaries ordered by creation time descending and UUID
+descending. It requires active membership, permits MEMBER reads and uses no-store.
+The server reads all calculation pages within a repeatable-read transaction.
+An empty workspace totals `0.00`; batches with no available calculations total
+null; mixed availability sums only available calculations and reports coverage.
+These are current planning estimates across all saved statuses, not expenditure.
+
+The dashboard does not fetch complete material/batch collections. Workspace-scoped
+change events invalidate dashboard, batch details and catalogue estimates on
+material/batch saves; BroadcastChannel notifies other tabs. Focus and route-entry
+reads refresh data even when BroadcastChannel is unavailable. Obsolete preview
+storage scopes are removed. Recovery copies of incomplete drafts remain scoped
+to user/workspace and are not server records. Decimal money formatting does not
+convert amounts to Number; its display rounding never feeds a calculation.

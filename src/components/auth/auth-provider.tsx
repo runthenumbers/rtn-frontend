@@ -16,7 +16,6 @@ import {
   type SessionUser,
   type WorkspaceContext,
 } from "@/lib/auth/api";
-import { setPreviewUser } from "@/lib/onboarding/preview-scope";
 
 type AuthState = {
   status: "loading" | "authenticated" | "unauthenticated" | "error";
@@ -41,13 +40,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const user = await getSession();
       if (current === sequence.current) {
-        setPreviewUser(user?.id ?? null);
         setState({ status: user ? "authenticated" : "unauthenticated", user });
       }
       return user;
     } catch (error) {
       if (current === sequence.current) {
-        setPreviewUser(null);
         setState({ status: "error", user: null });
       }
       throw error;
@@ -58,7 +55,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ++sequence.current;
     await endSession();
     ++sequence.current;
-    setPreviewUser(null);
     setState({ status: "unauthenticated", user: null });
     channel.current?.postMessage("session-changed");
   }, []);

@@ -1,20 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/feedback";
 import {
   batchHref,
   BatchStatusBadge,
 } from "@/components/batches/batches-catalogue";
-import { useBatches } from "@/components/batches/batches-provider";
-import { batchView } from "@/lib/batches/view-model";
+import {
+  getDashboard,
+  DashboardError,
+  type Dashboard,
+} from "@/lib/dashboard/api";
+import { useWorkspaceRevision } from "@/lib/workspace/use-workspace-revision";
+import { formatMaterialQuantity } from "@/lib/domain/material-units";
 import {
   formatCurrencyDecimal,
   formatUnitCostDecimal,
 } from "@/components/batches/batches-catalogue";
-import { useMaterials } from "@/components/materials/materials-provider";
 import { useAuth, useWorkspace } from "@/components/auth/auth-provider";
 import { routes } from "@/lib/routes";
 
@@ -26,58 +30,57 @@ const secondaryActionClassName =
 
 export function DashboardOverview() {
   const workspace = useWorkspace();
-  const currency: string = workspace?.baseCurrency ?? "GBP";
-  const { user } = useAuth();
-  const canEdit = user?.workspaceContext?.membership.role !== "MEMBER";
-  const { items: materials, status: materialStatus, retry } = useMaterials();
-  const { items, status: batchStatus, retry: retryBatches } = useBatches();
-  const batches = useMemo(
-    () => items.map((item) => batchView(item, materials)),
-    [items, materials],
-  );
-  const total = batches.some((batch) => batch.cost.total === null)
-    ? null
-    : batches.reduce(
-        (sum, batch) => sum + BigInt(batch.cost.total!.replace(".", "")),
-        0n,
-      );
-  const totalText =
-    total === null
-      ? null
-      : `${total / 100n}.${(total % 100n).toString().padStart(2, "0")}`;
-  const dashboard = {
-    materialCount: materials.length,
-    batchCount: batches.length,
-    recentBatches: batches.slice(0, 3),
-  };
-  const hasBatches = dashboard.recentBatches.length > 0;
-
-  if (materialStatus === "loading" || batchStatus === "loading")
-    return <LoadingState label="Loading dashboard" />;
-  if (materialStatus === "error")
+  const { user, refresh } = useAuth();
+  const canEdit =
+    user?.workspaceContext?.membership.role === "OWNER" ||
+    user?.workspaceContext?.membership.role === "ADMIN";
+  const workspaceId = workspace?.id;
+  const revision = useWorkspaceRevision(workspaceId);
+  const [attempt, setAttempt] = useState(0);
+  const [result, setResult] = useState<{
+    key: string;
+    dashboard?: Dashboard;
+    error?: unknown;
+  }>();
+  const key = `${user?.id}:${workspaceId}:${revision}:${attempt}`;
+  useEffect(() => {
+    if (!workspaceId) return;
+    const controller = new AbortController();
+    void getDashboard(workspaceId, controller.signal)
+      .then((dashboard) => {
+        if (!controller.signal.aborted) setResult({ key, dashboard });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setResult({ key, error });
+        if (
+          error instanceof DashboardError &&
+          (error.status === 401 || error.status === 404)
+        )
+          void refresh().catch(() => undefined);
+      });
+    return () => controller.abort();
+  }, [workspaceId, key, refresh]);
+  const current = result?.key === key ? result : undefined;
+  if (!current) return <LoadingState label="Loading dashboard" />;
+  if (!current.dashboard)
     return (
       <ErrorState
-        title="Unable to load materials"
-        description="The dashboard could not load your materials."
+        title="Unable to load dashboard"
+        description="Your workspace summary could not be loaded. Try again to get current estimates."
         action={
-          <button className={secondaryActionClassName} onClick={retry}>
+          <button
+            className={secondaryActionClassName}
+            onClick={() => setAttempt((value) => value + 1)}
+          >
             Try again
           </button>
         }
       />
     );
-  if (batchStatus === "error")
-    return (
-      <ErrorState
-        title="Unable to load batches"
-        description="The dashboard could not load your saved batches."
-        action={
-          <button className={secondaryActionClassName} onClick={retryBatches}>
-            Try again
-          </button>
-        }
-      />
-    );
+  const dashboard = current.dashboard;
+  const currency = dashboard.currencyCode;
+  const hasBatches = dashboard.batchCount > 0;
   return (
     <div className="mx-auto w-full max-w-6xl">
       <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
@@ -122,9 +125,41 @@ export function DashboardOverview() {
           <SummaryCard label="Batches" value={String(dashboard.batchCount)} />
           <SummaryCard label="Base currency" value={currency} />
           <SummaryCard
-            label="Estimated batch costs"
-            value={formatCurrencyDecimal(totalText, currency)}
+            label="Current estimated batch costs"
+            value={formatCurrencyDecimal(
+              dashboard.estimatedCosts.total,
+              currency,
+            )}
           />
+        </dl>
+        <p className="mt-3 text-sm text-slate-600" role="status">
+          {dashboard.estimatedCosts.calculatedBatchCount} of{" "}
+          {dashboard.batchCount} batches included.{" "}
+          {dashboard.estimatedCosts.unavailableBatchCount} unavailable.{" "}
+          Estimates use current material prices and are not actual expenditure.
+        </p>
+        <dl
+          className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4"
+          aria-label="Batches by status"
+        >
+          {(
+            [
+              ["DRAFT", "Draft"],
+              ["PLANNED", "Planned"],
+              ["IN_PRODUCTION", "In production"],
+              ["COMPLETED", "Completed"],
+            ] as const
+          ).map(([status, label]) => (
+            <div
+              key={status}
+              className="rounded-lg border border-slate-200 bg-white p-4"
+            >
+              <dt className="text-sm text-slate-600">{label}</dt>
+              <dd className="mt-1 text-xl font-semibold text-slate-950">
+                {dashboard.statusCounts[status]}
+              </dd>
+            </div>
+          ))}
         </dl>
       </section>
 
@@ -179,18 +214,29 @@ export function DashboardOverview() {
                         >
                           {batch.name}
                         </Link>
+                        {batch.unavailableReason ? (
+                          <p className="mt-1 max-w-64 text-xs font-normal text-slate-600">
+                            {batch.unavailableReason}
+                          </p>
+                        ) : null}
                       </th>
                       <td className="px-5 py-4">
                         <BatchStatusBadge status={batch.status} />
                       </td>
                       <td className="px-5 py-4 text-right text-sm text-slate-700">
-                        {batch.output}
+                        {formatMaterialQuantity(
+                          batch.targetOutputQuantity,
+                          batch.outputUnitCode,
+                        )}
                       </td>
                       <td className="px-5 py-4 text-right text-sm font-medium text-slate-900">
-                        {formatCurrencyDecimal(batch.cost.total, currency)}
+                        {formatCurrencyDecimal(batch.totalBatchCost, currency)}
                       </td>
                       <td className="px-5 py-4 text-right text-sm font-medium text-slate-900">
-                        {formatUnitCostDecimal(batch.cost.unit, currency)}
+                        {formatUnitCostDecimal(
+                          batch.costPerOutputUnit,
+                          currency,
+                        )}
                       </td>
                     </tr>
                   ))}

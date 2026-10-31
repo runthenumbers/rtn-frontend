@@ -9,6 +9,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { usePathname } from "next/navigation";
+import {
+  notifyWorkspaceChange,
+  subscribeWorkspaceChanges,
+} from "@/lib/workspace/changes";
 import { useAuth, useWorkspace } from "@/components/auth/auth-provider";
 import { listBatches, BatchError } from "@/lib/batches/api";
 import type { Batch } from "@/lib/batches/types";
@@ -48,14 +53,15 @@ function WorkspaceBatchesProvider({
     items: [],
   });
   const [attempt, setAttempt] = useState(0);
-  const channel = useRef<BroadcastChannel | null>(null);
+  const pathname = usePathname();
+  const active = pathname.startsWith("/batches");
   const sequence = useRef(0);
   const retry = useCallback(() => {
     setState((current) => ({ ...current, status: "loading" }));
     setAttempt((current) => current + 1);
   }, []);
   useEffect(() => {
-    if (!workspaceId) return;
+    if (!workspaceId || !active) return;
     const controller = new AbortController();
     const current = ++sequence.current;
     void listBatches(workspaceId, controller.signal)
@@ -73,19 +79,18 @@ function WorkspaceBatchesProvider({
           void refresh().catch(() => undefined);
       });
     return () => controller.abort();
-  }, [workspaceId, attempt, refresh]);
+  }, [workspaceId, attempt, refresh, active, pathname]);
   useEffect(() => {
-    if (typeof BroadcastChannel === "undefined" || !workspaceId) return;
-    const connection = new BroadcastChannel(`rtn-batches:${workspaceId}`);
-    channel.current = connection;
-    const revalidate = () => setAttempt((current) => current + 1);
-    connection.onmessage = revalidate;
-    window.addEventListener("focus", revalidate);
-    return () => {
-      channel.current = null;
-      window.removeEventListener("focus", revalidate);
-      connection.close();
-    };
+    if (!workspaceId) return;
+    return subscribeWorkspaceChanges(
+      workspaceId,
+      ["materials", "batches"],
+      () => {
+        ++sequence.current;
+        setState((current) => ({ ...current, status: "loading" }));
+        setAttempt((value) => value + 1);
+      },
+    );
   }, [workspaceId]);
   const saved = useCallback(
     (batch: Batch) => {
@@ -97,7 +102,7 @@ function WorkspaceBatchesProvider({
           ? current.items.map((item) => (item.id === batch.id ? batch : item))
           : [batch, ...current.items],
       }));
-      channel.current?.postMessage("batches-changed");
+      notifyWorkspaceChange(workspaceId, "batches");
       // Reconcile the full catalogue, including records missing from an in-flight initial load.
       setAttempt((current) => current + 1);
     },

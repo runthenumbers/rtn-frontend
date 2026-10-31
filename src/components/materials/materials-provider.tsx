@@ -9,6 +9,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { usePathname } from "next/navigation";
+import {
+  notifyWorkspaceChange,
+  subscribeWorkspaceChanges,
+} from "@/lib/workspace/changes";
 import { useAuth, useWorkspace } from "@/components/auth/auth-provider";
 import { listMaterials, MaterialError } from "@/lib/materials/api";
 import type { MaterialSummary } from "@/lib/materials/types";
@@ -48,14 +53,16 @@ function WorkspaceMaterialsProvider({
     items: [],
   });
   const [attempt, setAttempt] = useState(0);
-  const channel = useRef<BroadcastChannel | null>(null);
+  const pathname = usePathname();
+  const active =
+    pathname.startsWith("/materials") || pathname.startsWith("/batches/");
   const sequence = useRef(0);
   const retry = useCallback(() => {
     setState((current) => ({ ...current, status: "loading" }));
     setAttempt((current) => current + 1);
   }, []);
   useEffect(() => {
-    if (!workspaceId) return;
+    if (!workspaceId || !active) return;
     const controller = new AbortController();
     const current = ++sequence.current;
     void listMaterials(workspaceId, controller.signal)
@@ -73,16 +80,14 @@ function WorkspaceMaterialsProvider({
           void refresh().catch(() => undefined);
       });
     return () => controller.abort();
-  }, [workspaceId, attempt, refresh]);
+  }, [workspaceId, attempt, refresh, active, pathname]);
   useEffect(() => {
-    if (typeof BroadcastChannel === "undefined" || !workspaceId) return;
-    const connection = new BroadcastChannel(`rtn-materials:${workspaceId}`);
-    channel.current = connection;
-    connection.onmessage = () => setAttempt((current) => current + 1);
-    return () => {
-      channel.current = null;
-      connection.close();
-    };
+    if (!workspaceId) return;
+    return subscribeWorkspaceChanges(workspaceId, ["materials"], () => {
+      ++sequence.current;
+      // Keep mounted editors and unfinished builder inputs during background refresh.
+      setAttempt((value) => value + 1);
+    });
   }, [workspaceId]);
   const saved = useCallback(
     (material: MaterialSummary) => {
@@ -96,7 +101,7 @@ function WorkspaceMaterialsProvider({
             )
           : [material, ...current.items],
       }));
-      channel.current?.postMessage("materials-changed");
+      notifyWorkspaceChange(workspaceId, "materials");
       // Reconcile the full catalogue, including records missing from an in-flight initial load.
       setAttempt((current) => current + 1);
     },

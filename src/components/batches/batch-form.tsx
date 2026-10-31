@@ -25,6 +25,7 @@ import type {
   BatchCalculation,
   BatchCalculationInput,
 } from "@/lib/batches/types";
+import { useWorkspaceRevision } from "@/lib/workspace/use-workspace-revision";
 import { draftKey, parseDraft } from "@/lib/batches/draft";
 import { validDecimal } from "@/lib/materials/types";
 import { useBatches } from "./batches-provider";
@@ -300,7 +301,8 @@ function BatchFormFields({
       })),
     };
   }, [outputQuantity, outputUnit, lines, fixedCosts]);
-  const previewKey = JSON.stringify([workspaceId, previewInput]);
+  const revision = useWorkspaceRevision(workspaceId);
+  const previewKey = JSON.stringify([workspaceId, previewInput, revision]);
   const [preview, setPreview] = useState<{
     key: string;
     result?: BatchCalculation;

@@ -37,7 +37,7 @@ Environment files live at the project root, not inside `src/`.
 - Variables prefixed with `NEXT_PUBLIC_` are included in the browser bundle at
   build time. They must never contain secrets.
 - Server-only variables must not use the `NEXT_PUBLIC_` prefix.
-- Vercel must provide production values before building the frontend.
+- Netlify must provide production values before building the frontend.
 
 Set `API_URL=https://rtn-backend.vercel.app` for the backend upstream.
 Browser API requests use `/api/v1/...`; Next.js rewrites them to the backend
@@ -139,7 +139,7 @@ loads the saved profile from GET /api/v1/workspaces/:workspaceId and saves it wi
 PUT to the same endpoint. OWNER and ADMIN can edit; MEMBER sees disabled fields.
 Saved values update session context and other tabs. Failed saves retain the draft;
 base-currency conflicts explain why existing material prices prevent a change.
-Materials and batches use tenant-scoped backend persistence. The dashboard derives counts and current cost estimates from those persisted records.
+Materials and batches use tenant-scoped backend persistence. The dashboard consumes a workspace-scoped backend summary with counts, current cost estimates and calculation coverage.
 
 Set backend `FRONTEND_URL` to the exact frontend origin (`http://localhost:3000`
 for local development). Use `npm run dev` against a development backend; production
@@ -151,7 +151,10 @@ session refresh, conflict and lost-response recovery tests. Browser checks shoul
 cover signup, explicit email verification, sign-in, onboarding, reload, new tabs,
 failed and successful sign-out, and account switching. Deploy the matching backend release before deploying this frontend.
 
-The calculation module provides advisory estimates from current material prices and saved fixed costs. Quantities and fixed costs persist on the server; historical price snapshots and authoritative final costing remain a separate milestone. See `docs/frontend-contracts.md`.
+All cost calculations and dashboard cost aggregation run on the backend. The
+unchanged calculation engine provides authoritative current-price estimates;
+historical price snapshots and actual production costing remain outside this MVP.
+See `docs/frontend-contracts.md`.
 
 ## Deployment
 
@@ -174,7 +177,7 @@ places and whole quantities for count units. No browser material persistence or
 sample material fallback remains.
 
 The dashboard material count and batch builder also read the live catalogue.
-Batches also persist; authoritative final costing remains a later milestone. Saves update
+Batches also persist and use backend engine results for current estimates. Saves update
 the shared catalogue and notify other tabs. Failed requests retain form inputs;
 uncertain creation requests are not automatically retried.
 
@@ -209,3 +212,31 @@ local PostgreSQL database, backend dependencies/build, and Chromium or Chrome.
 No new migration is introduced in Week 6. The Week 5 batch migration must exist
 in every deployed backend database. Deployment instructions are prepared only;
 staging/production deployment and a hosted authenticated smoke test are not run.
+
+## Week 8 — Live dashboard and release verification
+
+The dashboard loads one tenant-scoped summary endpoint, including status counts,
+three recent batches and calculation coverage. A non-calculable draft does not
+hide the costs of calculable batches. Material/batch edits refresh affected
+estimates in this tab and other open tabs. Money formatting preserves decimal
+strings even beyond the safe-integer range. Obsolete preview-user state and the
+unused placeholder page have been removed; backend calculation previews and
+session-scoped draft recovery remain.
+
+Run `npm run test:unit` for all frontend contract tests. Run
+`BROWSER_TEST_DATABASE_URL=<disposable-local-url> npm run test:release:browser`
+for the full registration-to-dashboard journey, password reset, batch/material
+flows, repricing, role/tenant checks and accessibility. It builds and serves the
+production frontend and backend over local HTTPS, asserting Secure/HttpOnly
+session cookies and overriding only mail delivery with a local in-memory outbox. Nothing is sent to a real mail provider. Set
+`BROWSER_CHANNEL=chrome` to use installed Chrome. Build the backend and apply
+existing migrations to the disposable database first.
+
+Frontend quality CI runs on pushes/PRs. The manual Release verification workflow
+requires a reviewed full backend commit SHA and the `RTN_BACKEND_READ_TOKEN`
+secret with read-only access to that repository. It runs the same full browser
+suite against PostgreSQL 17 and uploads screenshots/logs. Configure that secret
+before dispatching; local passes do not claim remote CI or production sign-off.
+
+Release order, hosted checks, known limitations and sign-off status are recorded
+in `../rtn-backend/docs/week-8-release-candidate.md`.

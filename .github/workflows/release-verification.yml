@@ -1,0 +1,67 @@
+name: Release verification
+on:
+  workflow_dispatch:
+    inputs:
+      backend_ref:
+        description: Exact reviewed rtn-backend commit SHA
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: rtn
+          POSTGRES_PASSWORD: rtn_ci
+          POSTGRES_DB: rtn_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U rtn -d rtn_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://rtn:rtn_ci@127.0.0.1:5432/rtn_test
+      DIRECT_URL: postgresql://rtn:rtn_ci@127.0.0.1:5432/rtn_test
+      BROWSER_TEST_DATABASE_URL: postgresql://rtn:rtn_ci@127.0.0.1:5432/rtn_test
+      BROWSER_RELEASE_CHECK: "1"
+    steps:
+      - name: Require an immutable backend revision and repository access
+        env:
+          BACKEND_REF: ${{ inputs.backend_ref }}
+          BACKEND_TOKEN: ${{ secrets.RTN_BACKEND_READ_TOKEN }}
+        run: |
+          test -n "$BACKEND_TOKEN" || { echo 'Configure RTN_BACKEND_READ_TOKEN with read access to rtn-backend.'; exit 1; }
+          [[ "$BACKEND_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'backend_ref must be a full commit SHA.'; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          path: rtn-frontend
+      - uses: actions/checkout@v4
+        with:
+          repository: runthenumbers/rtn-backend
+          ref: ${{ inputs.backend_ref }}
+          token: ${{ secrets.RTN_BACKEND_READ_TOKEN }}
+          persist-credentials: false
+          path: rtn-backend
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            rtn-frontend/package-lock.json
+            rtn-backend/package-lock.json
+      - run: npm ci && npm run db:migrate:deploy && npm run build
+        working-directory: rtn-backend
+      - run: npm ci && npx playwright install --with-deps chromium
+        working-directory: rtn-frontend
+      - run: npm run test:release:browser
+        working-directory: rtn-frontend
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-browser-evidence
+          path: /tmp/rtn-week6-*
+          if-no-files-found: ignore

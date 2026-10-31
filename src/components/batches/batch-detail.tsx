@@ -9,6 +9,7 @@ import {
 } from "@/components/batches/batches-catalogue";
 import { ErrorState, LoadingState } from "@/components/ui/feedback";
 import { useAuth } from "@/components/auth/auth-provider";
+import { subscribeWorkspaceChanges } from "@/lib/workspace/changes";
 import { getBatch, BatchError } from "@/lib/batches/api";
 import { batchView } from "@/lib/batches/view-model";
 import type { Batch, BatchLineViewModel } from "@/lib/batches/types";
@@ -39,6 +40,17 @@ export function BatchDetail({ batchId }: { batchId: string }) {
   const [attempt, setAttempt] = useState(0);
   const workspaceId = workspace?.id;
   const key = `${workspaceId}:${batchId}`;
+  useEffect(() => {
+    if (!workspaceId) return;
+    return subscribeWorkspaceChanges(
+      workspaceId,
+      ["materials", "batches"],
+      () => {
+        setResult(undefined);
+        setAttempt((value) => value + 1);
+      },
+    );
+  }, [workspaceId]);
   useEffect(() => {
     if (!workspaceId) return;
     const controller = new AbortController();
